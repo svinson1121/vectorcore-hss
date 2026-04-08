@@ -218,13 +218,15 @@ hss:
   ProductName: VectorCore HSS
   BindAddress: "::"
   BindPort: 3868
-  EnableSCTP: false
+  EnableSCTP: false      # set true to also listen on SCTP (requires kernel sctp module)
   DWRInterval: 30
   CancelLocationRequest_Enabled: true
   MCC: "001"
   MNC: "01"
   scscf_pool:
     - 'sip:scscf.ims.mnc001.mcc001.3gppnetwork.org'
+  # TLSCertFile: /etc/hss/tls/cert.pem   # uncomment for DiameterTLS (RFC 6733)
+  # TLSKeyFile:  /etc/hss/tls/key.pem
 
 database:
   db_type: postgresql
@@ -238,26 +240,37 @@ database:
   pool_recycle: 300
 
 logging:
-  level: info        # debug | info | warn | error
-  console: true
-  file: /var/log/hss.log
+  # Supported levels: debug, info, warn, error
+  level: info
+  file: /var/log/hss.log   # write logs to this file (comment out to disable)
+  # Use -d flag to force debug level and enable console output
 
 eir:
-  no_match_response: 0   # 0=whitelist 1=blacklist 2=greylist
+  # no_match_response: response code when an IMEI has no matching EIR rule.
+  # EIR response codes (3GPP TS 29.272 §7.3.51 Equipment-Status):
+  #   0 = WHITELISTED  device is allowed (default)
+  #   1 = BLACKLISTED  device is denied
+  #   2 = GREYLISTED   device is allowed with operator-defined restrictions
+  no_match_response: 0
   imsi_imei_logging: true
-  tac_db_enabled: true   # load GSMA TAC database for device enrichment
+  # tac_db_enabled loads the GSMA Type Allocation Code (IMEI device database)
+  # into memory and enriches EIR history with device make/model.
+  # NOTE: TAC here = IMEI Type Allocation Code, NOT the RAN Tracking Area Code.
+  tac_db_enabled: true
 
 geored:
   enabled: false
-  node_id: "hss01"
-  listen_port: 9869
-  bearer_token: "changeme"
-  sync_oam: true
-  sync_state: true
-  batch_max_events: 500
-  batch_max_age_ms: 10
-  queue_size: 10000
-  periodic_sync_interval_s: 0
+  node_id: "hss01"           # unique identifier for this node (required when enabled)
+  listen_port: 9869           # inter-node listener port (h2c or TLS)
+  bearer_token: "changeme"    # shared token for inter-node auth
+  # tls_cert_file: ""           # leave blank for cleartext h2c
+  # tls_key_file:  ""
+  sync_oam: true               # replicate OAM changes (subscriber, AUC, APN, IMS, EIR)
+  sync_state: true             # replicate dynamic state (SQN, serving MME/SGSN, Gx sessions)
+  batch_max_events: 500        # flush batch after this many events
+  batch_max_age_ms: 10         # flush batch after this many milliseconds
+  queue_size: 10000            # per-peer outbound queue depth
+  periodic_sync_interval_s: 0  # 0 = disabled; >0 triggers a full resync every N seconds
   peers: []
   # peers:
   #   - node_id: "hss02"
@@ -265,16 +278,59 @@ geored:
   #     bearer_token: "changeme"
 
 gsup:
+  # GSUP/HLR listener for Osmocom MSC/SGSN (OsmoMSC, OsmoSGSN).
+  # Used for 2G/3G circuit-switched auth: SGs SMS and CSFB voice.
+  # Protocol: Osmocom IPA + GSUP over TCP (default port 4222).
   enabled: true
   bind_address: "::"
   bind_port: 4222
+
+udm:
+  # 5G UDR/UDM listener — implements the 3GPP Nudm SBI interfaces used by
+  # Open5GS AUSF, AMF, and SMF. VectorCore acts as both UDM (application
+  # logic) and UDR (data repository) — no separate UDR process; goes directly
+  # to the same PostgreSQL database as the 4G HSS.
+  #
+  # Interfaces served:
+  #   nudm-ueau  (port 7777)  5G-AKA auth vectors for AUSF
+  #   nudm-sdm   (port 7777)  subscription data for AMF/SMF
+  #   nudm-uecm  (port 7777)  UE context registrations for AMF/SMF
+  #
+  # Transport: cleartext HTTP/2 (h2c) when no TLS certs are set — the normal
+  # mode for Open5GS lab deployments.
+  enabled: false
+  bind_address: "::"
+  bind_port: 7777
+
+  # nrf_address is the base URL of the Open5GS NRF.
+  # Leave empty to skip NRF registration (standalone / dev mode).
+  # Example: nrf_address: "http://127.0.0.5:7777"
+  nrf_address: ""
+
+  # nf_instance_id is a stable UUID for this UDM instance used in NRF
+  # registration. Leave blank to auto-generate a UUID on each startup.
+  nf_instance_id: ""
+
+  # TLS — leave blank for cleartext HTTP/2 (h2c).
+  # Uncomment for production TLS:
+  # tls_cert_file: /etc/hss/tls/cert.pem
+  # tls_key_file:  /etc/hss/tls/key.pem
+
+  # OAuth2 token validation on inbound Nudm requests.
+  # Set oauth2_enabled: true and oauth2_bypass: false for production.
+  oauth2_enabled: false
+  oauth2_bypass: true     # skip token check even when oauth2_enabled (lab mode)
 
 api:
   enabled: true
   bind_address: "::"
   bind_port: 8080
+  # tls_cert_file: /etc/hss/tls/cert.pem   # uncomment for HTTPS
+  # tls_key_file:  /etc/hss/tls/key.pem
   auth_enabled: false
   api_keys: []
+  # api_keys:
+  #   - "your-secret-key-here"
 ```
 
 ### Run
@@ -289,8 +345,9 @@ On startup the server will:
 2. Load the GSMA TAC database into memory (if tac_db_enabled)
 3. Start the Diameter listener on TCP port 3868 (and SCTP if enabled)
 4. Start the GSUP/HLR listener on TCP port 4222 (if enabled)
-5. Start the OAM REST API on port 8080 (if enabled)
-6. Start the GeoRed replication listener on port 9869 (if enabled)
+5. Start the 5G UDM/UDR SBI listener on port 7777 (if enabled)
+6. Start the OAM REST API on port 8080 (if enabled)
+7. Start the GeoRed replication listener on port 9869 (if enabled)
 
 ### Provision a subscriber
 
