@@ -7,8 +7,9 @@ networks, written in Go.
 
 ## Features
 
-- **Multi-interface Diameter server** - S6a, S13, Cx, Sh, Gx, Rx, SWx, SLh, Zh on a single TCP/SCTP listener
+- **Multi-interface Diameter server** - S6a, S6c, S13, Cx, Sh, Gx, Rx, SWx, SLh, Zh on a single TCP/SCTP listener
 - **GSUP/HLR** - Osmocom IPA+GSUP server (port 4222) for OsmoMSC/OsmoSGSN; handles SendAuthInfo, UpdateLocation, PurgeMS; generates 2G triplets and 3G quintuplets for CSFB voice and SGs SMS
+- **SMS routing (S6c)** - Send-Routing-Info-for-SM (SRI-SM) resolves MSISDN to serving MME for MT SMS delivery via SGd/T4; Report-SM-Delivery-Status (RSDS) stores Message Waiting Data on delivery failure; Alert-Service-Centre (ALSC) is HSS-initiated and fires automatically when the subscriber re-attaches; SMS-in-MME registration state (MME-Number-for-MT-SMS, MME-Registered-for-SMS) tracked per subscriber via ULR
 - **Milenage authentication** - EUTRAN vector generation (AIR), EAP-AKA vector generation (SWx MAR), GBA vector generation (Zh MAR); custom c/r constant profiles per-AUC
 - **Atomic SQN management** - SELECT FOR UPDATE prevents SQN races during concurrent AIR from multiple MMEs
 - **In-memory read cache** - 60-second TTL cache on AUC and Subscriber hot paths
@@ -44,6 +45,16 @@ networks, written in Go.
 | Command | Direction | Description |
 |---------|-----------|-------------|
 | ECR / ECA | MME -> HSS | ME-Identity-Check - checks IMEI against the EIR table; returns WHITELISTED (0), BLACKLISTED (1), or GREYLISTED (2). Supports exact and regex match modes. IMSI/IMEI pairs are optionally logged to eir_history. |
+
+### S6c - SMS Routing HSS <-> SMS-SC (3GPP TS 29.338)
+
+| Command | Direction | Description |
+|---------|-----------|-------------|
+| SRI-SM / SRI-SMA | SMS-SC -> HSS | Send-Routing-Info-for-SM - looks up subscriber by MSISDN (or IMSI, BCD-encoded on the wire); returns IMSI, serving MME address and realm, and MME-Number-for-MT-SMS so the SMS-SC can route the MT SMS via SGd/T4. Returns MWD-Status flags if message waiting data is pending. |
+| RSDS / RSDSA | SMS-SC -> HSS | Report-SM-Delivery-Status - on delivery failure (absent subscriber or memory-capacity exceeded) stores a Message Waiting Data record keyed to the SMS-SC; on successful delivery clears the MWD record. Supports MNRF and MCEF status flags per TS 29.338 §5.3.2.4. |
+| ALSC / ALSCA | HSS -> SMS-SC | Alert-Service-Centre - HSS-initiated; sent to each SMS-SC with a pending MWD record when the subscriber re-attaches (triggered by ULR success). MWD is deleted only after the SMS-SC returns Result-Code 2001; if the peer is unreachable the MWD is left in place and retried on the next ULR. |
+
+The ULR handler on S6a detects SMS-in-MME capability from ULR-Flags and the MME-Number-for-MT-SMS AVP, stores the registration state on the subscriber record, and sets the MME-Registered-for-SMS bit in ULA-Flags. SRI-SM returns this MME number in the Serving-Node grouped AVP so the SMS-SC can route directly to the MME.
 
 ### Cx - IMS HSS <-> CSCF (3GPP TS 29.228 / 29.229)
 
@@ -196,6 +207,75 @@ make build
 
 Output: `bin/hss`
 
+### Configure
+
+The full config.yaml with all sections:
+
+```yaml
+hss:
+  OriginHost: hss01.epc.mnc001.mcc001.3gppnetwork.org
+  OriginRealm: epc.mnc001.mcc001.3gppnetwork.org
+  ProductName: VectorCore HSS
+  BindAddress: "::"
+  BindPort: 3868
+  EnableSCTP: false
+  DWRInterval: 30
+  CancelLocationRequest_Enabled: true
+  MCC: "001"
+  MNC: "01"
+  scscf_pool:
+    - 'sip:scscf.ims.mnc001.mcc001.3gppnetwork.org'
+
+database:
+  db_type: postgresql
+  server: localhost
+  port: 5432
+  username: hss
+  password: hss
+  database: hss
+  pool_size: 30
+  pool_idle: 10
+  pool_recycle: 300
+
+logging:
+  level: info        # debug | info | warn | error
+  console: true
+  file: /var/log/hss.log
+
+eir:
+  no_match_response: 0   # 0=whitelist 1=blacklist 2=greylist
+  imsi_imei_logging: true
+  tac_db_enabled: true   # load GSMA TAC database for device enrichment
+
+geored:
+  enabled: false
+  node_id: "hss01"
+  listen_port: 9869
+  bearer_token: "changeme"
+  sync_oam: true
+  sync_state: true
+  batch_max_events: 500
+  batch_max_age_ms: 10
+  queue_size: 10000
+  periodic_sync_interval_s: 0
+  peers: []
+  # peers:
+  #   - node_id: "hss02"
+  #     address: "192.168.1.2:9869"
+  #     bearer_token: "changeme"
+
+gsup:
+  enabled: true
+  bind_address: "::"
+  bind_port: 4222
+
+api:
+  enabled: true
+  bind_address: "::"
+  bind_port: 8080
+  auth_enabled: false
+  api_keys: []
+```
 
 ### Run
 
@@ -250,6 +330,7 @@ MME / CSCF / PGW / AAA / AS / BSF / E-CSCF (Diameter peers)
   +-- internal/diameter/server.go        StateMachine, handler wiring, TCP/SCTP listener
         |
         +-- internal/diameter/s6a/       AIR, ULR, PUR, NOR; HSS-originated CLR, IDR, DSR, RSR
+        +-- internal/diameter/s6c/       SRI-SM, RSDS; HSS-originated ALSC (SMS routing + MWD)
         +-- internal/diameter/s13/       ECR (EIR check)
         +-- internal/diameter/cx/        UAR, SAR, LIR, MAR; HSS-originated RTR, PPR
         +-- internal/diameter/sh/        UDR; HSS-originated PNR
@@ -313,7 +394,7 @@ startup - it is additive-only and safe to run against an existing PyHSS database
 **Tables:** `apn`, `auc`, `algorithm_profile`, `subscriber`, `subscriber_routing`,
 `serving_apn`, `ims_subscriber`, `ifc_profile`, `roaming_network`, `roaming_rule`,
 `emergency_subscriber`, `charging_rule`, `tft`, `eir`, `eir_history`,
-`subscriber_attributes`, `operation_log`
+`subscriber_attributes`, `operation_log`, `message_waiting_data`
 
 ---
 
