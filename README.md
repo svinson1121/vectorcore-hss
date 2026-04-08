@@ -336,7 +336,7 @@ api:
 ### Run
 
 ```bash
-./bin/hss -config config.yaml
+./bin/hss -c config.yaml
 ```
 
 On startup the server will:
