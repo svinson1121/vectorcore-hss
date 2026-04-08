@@ -1,0 +1,75 @@
+name: VectorCore HSS S6a Test Suite
+
+# Set mcc/mnc to match your network. Default in diamtest is 001/01.
+# Override on command line: diamtest --mcc 001 --mnc 01 suite --config ...
+
+tests:
+
+  # ── Happy path ──────────────────────────────────────────────────────────────
+
+  - name: AIR_known_subscriber
+    description: AIR for a known subscriber should return 1 E-UTRAN vector
+    command: air
+    imsi: "001010000000001"
+    num_vectors: 1
+    expect: success
+
+  - name: AIR_multiple_vectors
+    description: Request 3 vectors in a single AIR
+    command: air
+    imsi: "001010000000001"
+    num_vectors: 3
+    expect: success
+
+  - name: ULR_known_subscriber
+    description: ULR should return Subscription-Data with APNs
+    command: ulr
+    imsi: "001010000000001"
+    rat_type: 1004
+    expect: success
+
+  - name: PUR_known_subscriber
+    description: PUR should clear serving MME and return success
+    command: pur
+    imsi: "001010000000001"
+    expect: success
+
+  # ── Error paths ─────────────────────────────────────────────────────────────
+
+  - name: AIR_unknown_imsi
+    description: AIR for unknown IMSI should return USER_UNKNOWN
+    command: air
+    imsi: "999999999999999"
+    expect: user_unknown
+
+  - name: ULR_unknown_imsi
+    description: ULR for unknown IMSI should return USER_UNKNOWN
+    command: ulr
+    imsi: "999999999999999"
+    expect: user_unknown
+
+  - name: PUR_unknown_imsi
+    description: PUR for unknown IMSI should return USER_UNKNOWN
+    command: pur
+    imsi: "999999999999999"
+    expect: user_unknown
+
+  # ── Full attach → detach sequence ────────────────────────────────────────────
+
+  - name: SEQ_air
+    description: "Sequence: authenticate"
+    command: air
+    imsi: "001010000000001"
+    expect: success
+
+  - name: SEQ_ulr
+    description: "Sequence: location update"
+    command: ulr
+    imsi: "001010000000001"
+    expect: success
+
+  - name: SEQ_pur
+    description: "Sequence: detach"
+    command: pur
+    imsi: "001010000000001"
+    expect: success

@@ -1,0 +1,65 @@
+package s6a
+
+import (
+	"github.com/fiorix/go-diameter/v4/diam"
+	"github.com/svinson1121/vectorcore-hss/internal/config"
+	"github.com/svinson1121/vectorcore-hss/internal/geored"
+	"github.com/svinson1121/vectorcore-hss/internal/repository"
+	"go.uber.org/zap"
+)
+
+// PeerLookup lets ULR find an old MME's active connection to send CLR.
+// Implemented by *diameter.ConnTracker; the interface breaks the import cycle
+// since s6a already imports diam but must not import internal/diameter.
+type PeerLookup interface {
+	GetConn(originHost string) (diam.Conn, bool)
+}
+
+type Handlers struct {
+	store                  repository.Repository
+	log                    *zap.Logger
+	originHost             string
+	originRealm            string
+	clrEnabled             bool
+	peers                  PeerLookup
+	eirNoMatchResp         int
+	eirIMSIIMEILog         bool
+	homeMCC                string
+	homeMNC                string
+	allowUndefinedRoaming  bool
+	pub                    geored.TypedPublisher
+	// onRegister is called after a successful ULR (LTE attach).
+	// Wired to s6c.Handlers.SendALSCForIMSI by the server to trigger
+	// Alert-Service-Centre for any pending Message Waiting Data.
+	onRegister func(imsi string)
+}
+
+func NewHandlers(cfg *config.Config, store repository.Repository, log *zap.Logger, peers PeerLookup) *Handlers {
+	return &Handlers{
+		store:                 store,
+		log:                   log,
+		originHost:            cfg.HSS.OriginHost,
+		originRealm:           cfg.HSS.OriginRealm,
+		clrEnabled:            cfg.HSS.CancelLocationRequestEnabled,
+		peers:                 peers,
+		eirNoMatchResp:        cfg.EIR.NoMatchResponse,
+		eirIMSIIMEILog:        cfg.EIR.IMSIIMEILogging,
+		homeMCC:               cfg.HSS.MCC,
+		homeMNC:               cfg.HSS.MNC,
+		allowUndefinedRoaming: cfg.Roaming.AllowUndefinedNetworks,
+		pub:                   geored.NoopTypedPublisher{},
+	}
+}
+
+// WithGeored attaches a GeoRed publisher to the S6a handler.
+func (h *Handlers) WithGeored(pub geored.TypedPublisher) *Handlers {
+	h.pub = pub
+	return h
+}
+
+// WithOnRegister sets a callback invoked after each successful LTE attach (ULR).
+// Used to trigger S6c Alert-Service-Centre for pending Message Waiting Data.
+func (h *Handlers) WithOnRegister(fn func(imsi string)) *Handlers {
+	h.onRegister = fn
+	return h
+}

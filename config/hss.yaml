@@ -1,0 +1,119 @@
+hss:
+  OriginHost: hss01.epc.mnc435.mcc311.3gppnetwork.org
+  OriginRealm: epc.mnc435.mcc311.3gppnetwork.org
+  ProductName: VectorCore HSS
+  BindAddress: "::"
+  BindPort: 3868
+  EnableSCTP: yes        # set true to also listen on SCTP (requires kernel sctp module)
+  DWRInterval: 30
+  CancelLocationRequest_Enabled: true
+  MCC: "311"
+  MNC: "435"
+  scscf_pool:
+    - 'sip:scscf.ims.mnc435.mcc311.3gppnetwork.org'
+  # TLSCertFile: /etc/hss/tls/cert.pem   # uncomment for DiameterTLS (RFC 6733)
+  # TLSKeyFile:  /etc/hss/tls/key.pem
+
+database:
+  db_type: postgresql
+  server: localhost
+  port: 5432
+  username: hss
+  password: hss
+  database: hss
+  pool_size: 30
+  pool_idle: 10
+  pool_recycle: 300
+
+logging:
+  # Supported levels: debug, info, warn, error
+  level: info
+  file: /opt/vectorcore/log/hss.log  # write logs to this file (comment out to disable)
+  # Use -d flag to force debug level and enable console output
+
+eir:
+  # no_match_response: response code returned when an IMEI has no matching EIR rule.
+  # EIR response codes (3GPP TS 29.272 §7.3.51 Equipment-Status):
+  #   0 = WHITELISTED  device is allowed (default)
+  #   1 = BLACKLISTED  device is denied
+  #   2 = GREYLISTED   device is allowed with operator-defined restrictions
+  no_match_response: 0
+  imsi_imei_logging: true
+  # tac_db_enabled loads the GSMA Type Allocation Code (IMEI device database)
+  # into memory and enriches EIR history with device make/model.
+  # NOTE: TAC here = IMEI Type Allocation Code, NOT the RAN Tracking Area Code.
+  tac_db_enabled: true
+
+geored:
+  enabled: true 
+  node_id: "hss01"           # unique identifier for this node (required when enabled)
+  listen_port: 9869           # inter-node listener port (h2c or TLS)
+  bearer_token: "06453hd734"    # shared token for inter-node auth
+  # tls_cert_file: ""           # leave blank for cleartext h2c
+  # tls_key_file:  ""
+  sync_oam: true               # replicate OAM changes (subscriber, AUC, APN, IMS, EIR)
+  sync_state: true             # replicate dynamic state (SQN, serving MME/SGSN, Gx sessions)
+  batch_max_events: 500        # flush batch after this many events
+  batch_max_age_ms: 10         # flush batch after this many milliseconds
+  queue_size: 10000            # per-peer outbound queue depth
+  periodic_sync_interval_s: 0  # 0 = disabled; >0 triggers a full resync every N seconds
+  peers: []
+  # peers:
+  #   - node_id: "node-b"
+  #     address: "192.168.1.2:9869"
+  #     bearer_token: "changeme"
+
+gsup:
+  # GSUP/HLR listener for Osmocom MSC/SGSN (OsmoMSC, OsmoSGSN).
+  # Used for 2G/3G circuit-switched auth: SGs SMS and CSFB voice.
+  # Protocol: Osmocom IPA + GSUP over TCP (default port 4222).
+  enabled: true
+  bind_address: "::"
+  bind_port: 4222
+
+udm:
+  # 5G UDR/UDM listener  implements the 3GPP Nudm SBI interfaces used by
+  # Open5GS AUSF, AMF, and SMF.  VectorCore acts as both UDM (application
+  # logic) and UDR (data repository) no separate UDR process; goes directly
+  # to the same PostgreSQL database as the 4G HSS.
+  #
+  # Interfaces served:
+  #   nudm-ueau  (port 7777)  5G-AKA auth vectors for AUSF
+  #   nudm-sdm   (port 7777)  subscription data for AMF/SMF
+  #   nudm-uecm  (port 7777)  UE context registrations for AMF/SMF
+  #
+  # Transport: cleartext HTTP/2 (h2c) when no TLS certs are set  the normal
+  # mode for Open5GS lab deployments.
+  enabled: true
+  bind_address: "::"
+  bind_port: 7777
+
+  # nrf_address is the base URL of the Open5GS NRF.
+  # Leave empty to skip NRF registration (standalone / dev mode).
+  # Example: nrf_address: "http://127.0.0.5:7777"
+  nrf_address: ""
+
+  # nf_instance_id is a stable UUID for this UDM instance used in NRF
+  # registration.  Leave blank to auto-generate a UUID on each startup.
+  nf_instance_id: ""
+
+  # TLS leave blank for cleartext HTTP/2 (h2c).
+  # Uncomment for production TLS:
+  # tls_cert_file: /etc/hss/tls/cert.pem
+  # tls_key_file:  /etc/hss/tls/key.pem
+
+  # OAuth2 token validation on inbound Nudm requests.
+  # Set oauth2_enabled: true and oauth2_bypass: false for production.
+  oauth2_enabled: false
+  oauth2_bypass: true     # skip token check even when oauth2_enabled (lab mode)
+
+api:
+  enabled: true
+  bind_address: "::"
+  bind_port: 8080
+  # tls_cert_file: /etc/hss/tls/cert.pem   # uncomment for HTTPS
+  # tls_key_file:  /etc/hss/tls/key.pem
+  auth_enabled: false
+  api_keys: []
+  # api_keys:
+  #   - "your-secret-key-here"
