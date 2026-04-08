@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -14,7 +15,9 @@ import (
 
 type IFCProfileListOutput struct{ Body []models.IFCProfile }
 type IFCProfileOutput struct{ Body *models.IFCProfile }
-type IFCProfileIDInput struct{ ID int `path:"id"` }
+type IFCProfileIDInput struct {
+	ID int `path:"id"`
+}
 type IFCProfileCreateInput struct{ Body *models.IFCProfile }
 type IFCProfileUpdateInput struct {
 	ID   int `path:"id"`
@@ -72,6 +75,11 @@ func (s *Server) updateIFCProfile(ctx context.Context, input *IFCProfileUpdateIn
 }
 
 func (s *Server) deleteIFCProfile(ctx context.Context, input *IFCProfileIDInput) (*struct{}, error) {
+	if msisdn, err := firstString(ctx, s.db, &models.IMSSubscriber{}, "msisdn", "ifc_profile_id = ?", input.ID); err == nil {
+		return nil, conflictInUse("IFC profile", strconv.Itoa(input.ID), "IMS subscriber", msisdn)
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, huma.Error500InternalServerError("db error", err)
+	}
 	if err := s.db.WithContext(ctx).Delete(&models.IFCProfile{}, input.ID).Error; err != nil {
 		return nil, huma.Error500InternalServerError("db error", err)
 	}

@@ -1,10 +1,10 @@
-import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useEffect } from 'react'
 import { Plus, Pencil, Trash2, RefreshCw, Cpu } from 'lucide-react'
 import Spinner from '../components/Spinner.jsx'
 import Modal from '../components/Modal.jsx'
 import { useToast } from '../components/Toast.jsx'
 import { usePoller } from '../hooks/usePoller.js'
-import { getAlgorithmProfiles, createAlgorithmProfile, updateAlgorithmProfile, deleteAlgorithmProfile } from '../api/client.js'
+import { getAlgorithmProfiles, createAlgorithmProfile, updateAlgorithmProfile, deleteAlgorithmProfile, getAUCs } from '../api/client.js'
 
 const SECTION_STYLE = {
   fontSize: '0.75rem',
@@ -191,8 +191,19 @@ export default function AlgorithmProfiles({ compact = false }) {
   const [modal, setModal] = useState(null)
   const [delConfirm, setDelConfirm] = useState(null)
   const [deleting, setDeleting] = useState(null)
+  const [aucs, setAUCs] = useState([])
 
   const profiles = Array.isArray(data) ? data : []
+
+  useEffect(() => {
+    getAUCs().then(d => setAUCs(Array.isArray(d?.items) ? d.items : [])).catch(() => {})
+  }, [])
+
+  function profileUsageReason(profile) {
+    const auc = aucs.find(row => Number(row.algorithm_profile_id) === profile.algorithm_profile_id)
+    if (auc) return `Algorithm profile is still used by AUC ${auc.imsi || `#${auc.auc_id}`}`
+    return ''
+  }
 
   async function handleDelete(profile) {
     setDeleting(profile.algorithm_profile_id)
@@ -281,7 +292,12 @@ export default function AlgorithmProfiles({ compact = false }) {
                       <button className="btn-icon" title="Edit" onClick={() => setModal({ profile })}>
                         <Pencil size={13} />
                       </button>
-                      <button className="btn-icon danger" title="Delete" onClick={() => setDelConfirm(profile)}>
+                      <button
+                        className="btn-icon danger"
+                        title={profileUsageReason(profile) || 'Delete'}
+                        onClick={() => setDelConfirm(profile)}
+                        disabled={!!profileUsageReason(profile)}
+                      >
                         <Trash2 size={13} />
                       </button>
                     </div>

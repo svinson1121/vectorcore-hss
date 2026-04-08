@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -17,7 +18,9 @@ import (
 
 type AlgorithmProfileListOutput struct{ Body []models.AlgorithmProfile }
 type AlgorithmProfileOutput struct{ Body *models.AlgorithmProfile }
-type AlgorithmProfileIDInput struct{ ID int `path:"id"` }
+type AlgorithmProfileIDInput struct {
+	ID int `path:"id"`
+}
 type AlgorithmProfileCreateInput struct{ Body *models.AlgorithmProfile }
 type AlgorithmProfileUpdateInput struct {
 	ID   int `path:"id"`
@@ -101,6 +104,15 @@ func (s *Server) updateAlgorithmProfile(ctx context.Context, input *AlgorithmPro
 }
 
 func (s *Server) deleteAlgorithmProfile(ctx context.Context, input *AlgorithmProfileIDInput) (*struct{}, error) {
+	if imsi, err := firstString(ctx, s.db, &models.AUC{}, "COALESCE(imsi, '')", "algorithm_profile_id = ?", input.ID); err == nil {
+		refLabel := imsi
+		if refLabel == "" {
+			refLabel = strconv.Itoa(input.ID)
+		}
+		return nil, conflictInUse("algorithm profile", strconv.Itoa(input.ID), "AUC", refLabel)
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, huma.Error500InternalServerError("db error", err)
+	}
 	if err := s.db.WithContext(ctx).Delete(&models.AlgorithmProfile{}, input.ID).Error; err != nil {
 		return nil, huma.Error500InternalServerError("db error", err)
 	}

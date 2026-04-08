@@ -53,21 +53,25 @@ type AuthFailureLister interface {
 
 // AuthFailure is a single failed S6a AIR attempt exposed by the API.
 type AuthFailure struct {
-	IMSI      string `json:"imsi"`
-	Timestamp string `json:"timestamp"`
-	Reason    string `json:"reason"`
-	PeerAddr  string `json:"peer_addr"`
+	IMSI        string `json:"imsi"`
+	Timestamp   string `json:"timestamp"`
+	Reason      string `json:"reason"`
+	PeerAddr    string `json:"peer_addr"`
+	AuthScope   string `json:"auth_scope"`
+	VisitedPLMN string `json:"visited_plmn"`
+	VisitedMCC  string `json:"visited_mcc"`
+	VisitedMNC  string `json:"visited_mnc"`
 }
 
 type Server struct {
 	db           *gorm.DB
 	log          *zap.Logger
 	cfg          config.APIConfig
-	clr          CLRSender        // nil when CLR is not wired (e.g. Diameter disabled)
-	cache        CacheInvalidator // nil when Diameter store is not wired
-	tac          *taccache.Cache  // nil when TAC DB is disabled in config
-	geored       GeoredManager    // nil when GeoRed is disabled
-	peers        PeerLister       // nil when Diameter is not wired
+	clr          CLRSender         // nil when CLR is not wired (e.g. Diameter disabled)
+	cache        CacheInvalidator  // nil when Diameter store is not wired
+	tac          *taccache.Cache   // nil when TAC DB is disabled in config
+	geored       GeoredManager     // nil when GeoRed is disabled
+	peers        PeerLister        // nil when Diameter is not wired
 	authFailures AuthFailureLister // nil when Diameter is not wired
 }
 
@@ -185,4 +189,3 @@ func (s *Server) registerRoutes(api huma.API) {
 		registerAuthFailureRoutes(s, api)
 	}
 }
-

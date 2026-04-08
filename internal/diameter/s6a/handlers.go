@@ -1,6 +1,8 @@
 package s6a
 
 import (
+	"encoding/hex"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,10 +17,14 @@ const authFailureRingSize = 10
 
 // AuthFailure records a single failed S6a AIR authentication attempt.
 type AuthFailure struct {
-	IMSI      string    `json:"imsi"`
-	Timestamp time.Time `json:"timestamp"`
-	Reason    string    `json:"reason"`
-	PeerAddr  string    `json:"peer_addr"`
+	IMSI        string    `json:"imsi"`
+	Timestamp   time.Time `json:"timestamp"`
+	Reason      string    `json:"reason"`
+	PeerAddr    string    `json:"peer_addr"`
+	AuthScope   string    `json:"auth_scope"`
+	VisitedPLMN string    `json:"visited_plmn"`
+	VisitedMCC  string    `json:"visited_mcc"`
+	VisitedMNC  string    `json:"visited_mnc"`
 }
 
 // PeerLookup lets ULR find an old MME's active connection to send CLR.
@@ -29,18 +35,18 @@ type PeerLookup interface {
 }
 
 type Handlers struct {
-	store                  repository.Repository
-	log                    *zap.Logger
-	originHost             string
-	originRealm            string
-	clrEnabled             bool
-	peers                  PeerLookup
-	eirNoMatchResp         int
-	eirIMSIIMEILog         bool
-	homeMCC                string
-	homeMNC                string
-	allowUndefinedRoaming  bool
-	pub                    geored.TypedPublisher
+	store                 repository.Repository
+	log                   *zap.Logger
+	originHost            string
+	originRealm           string
+	clrEnabled            bool
+	peers                 PeerLookup
+	eirNoMatchResp        int
+	eirIMSIIMEILog        bool
+	homeMCC               string
+	homeMNC               string
+	allowUndefinedRoaming bool
+	pub                   geored.TypedPublisher
 	// onRegister is called after a successful ULR (LTE attach).
 	// Wired to s6c.Handlers.SendALSCForIMSI by the server to trigger
 	// Alert-Service-Centre for any pending Message Waiting Data.
@@ -50,15 +56,34 @@ type Handlers struct {
 	authFailures []AuthFailure
 }
 
+func (h *Handlers) authFailureContext(visitedPLMN []byte) (scope, plmnHex, mcc, mnc string) {
+	if len(visitedPLMN) > 0 {
+		plmnHex = strings.ToUpper(hex.EncodeToString(visitedPLMN))
+	}
+	if len(visitedPLMN) != 3 {
+		return "unknown", plmnHex, "", ""
+	}
+	mcc, mnc = decodePLMN(visitedPLMN)
+	if mcc == h.homeMCC && mnc == h.homeMNC {
+		return "local", plmnHex, mcc, mnc
+	}
+	return "roaming", plmnHex, mcc, mnc
+}
+
 // RecordAuthFailure appends a failure to the in-memory ring buffer (last 10).
-func (h *Handlers) RecordAuthFailure(imsi, peerAddr, reason string) {
+func (h *Handlers) RecordAuthFailure(imsi, peerAddr, reason string, visitedPLMN []byte) {
+	scope, plmnHex, mcc, mnc := h.authFailureContext(visitedPLMN)
 	h.failMu.Lock()
 	defer h.failMu.Unlock()
 	h.authFailures = append(h.authFailures, AuthFailure{
-		IMSI:      imsi,
-		Timestamp: time.Now().UTC(),
-		Reason:    reason,
-		PeerAddr:  peerAddr,
+		IMSI:        imsi,
+		Timestamp:   time.Now().UTC(),
+		Reason:      reason,
+		PeerAddr:    peerAddr,
+		AuthScope:   scope,
+		VisitedPLMN: plmnHex,
+		VisitedMCC:  mcc,
+		VisitedMNC:  mnc,
 	})
 	if len(h.authFailures) > authFailureRingSize {
 		h.authFailures = h.authFailures[len(h.authFailures)-authFailureRingSize:]

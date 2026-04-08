@@ -129,9 +129,9 @@ func afterCreate(db *gorm.DB) {
 		return
 	}
 
-	after := reflectToMap(db)
-	// reflectToMap returns nil for slice/batch creates (e.g. bulk upserts).
-	// Nothing meaningful to log — skip to avoid empty "Created (0 fields)" entries.
+	after := currentRecordMap(db)
+	// currentRecordMap returns nil for batch creates or when the row cannot be
+	// reloaded by primary key. Nothing meaningful to log in that case.
 	if after == nil {
 		return
 	}
@@ -149,7 +149,7 @@ func afterUpdate(db *gorm.DB) {
 	}
 
 	before := instanceBefore(db)
-	after := reflectToMap(db)
+	after := currentRecordMap(db)
 	pkCol := pkColumnName(db)
 
 	writeLog(db, "update", pkCol, before, after)
@@ -205,26 +205,25 @@ func instanceBefore(db *gorm.DB) map[string]interface{} {
 	return m
 }
 
-// reflectToMap marshals the statement's reflected model to map[string]interface{}
-// via JSON, preserving the struct's json tags.
-func reflectToMap(db *gorm.DB) map[string]interface{} {
-	if !db.Statement.ReflectValue.IsValid() {
+// currentRecordMap reloads the current DB row into a generic map. This avoids
+// losing zero values like nam=0 to json `omitempty` tags on model structs.
+func currentRecordMap(db *gorm.DB) map[string]interface{} {
+	if db.Statement == nil || db.Statement.Table == "" {
 		return nil
 	}
-	rv := db.Statement.ReflectValue
-	if rv.Kind() == reflect.Ptr {
-		rv = rv.Elem()
-	}
-	if rv.Kind() != reflect.Struct {
+	pkCol := pkColumnName(db)
+	id := primaryKeyInt(db)
+	if pkCol == "" || id == 0 {
 		return nil
 	}
-	b, err := json.Marshal(rv.Interface())
-	if err != nil {
+	var current map[string]interface{}
+	if err := db.Session(&gorm.Session{NewDB: true}).
+		Table(db.Statement.Table).
+		Where(pkCol+" = ?", id).
+		Take(&current).Error; err != nil {
 		return nil
 	}
-	var m map[string]interface{}
-	_ = json.Unmarshal(b, &m)
-	return m
+	return current
 }
 
 // pkColumnName returns the primary key DB column name for the current statement.

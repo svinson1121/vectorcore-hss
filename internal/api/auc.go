@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,36 +26,40 @@ type AUCListBody struct {
 }
 type AUCListOutput struct{ Body AUCListBody }
 type AUCOutput struct{ Body *models.AUC }
-type AUCIDInput struct{ ID int `path:"id"` }
-type AUCIMSIInput struct{ IMSI string `path:"imsi"` }
+type AUCIDInput struct {
+	ID int `path:"id"`
+}
+type AUCIMSIInput struct {
+	IMSI string `path:"imsi"`
+}
 type AUCCreateInput struct{ Body *models.AUC }
 
 // AUCUpdateBody is a partial-update shape where Ki/OPc are optional pointers so
 // Huma does not mark them as required in the JSON schema.  When nil (absent from
 // the request body) the existing database values are preserved.
 type AUCUpdateBody struct {
-	Ki           *string  `json:"ki,omitempty"            doc:"Authentication key Ki (hex 32). Omit to keep existing value."`
-	OPc          *string  `json:"opc,omitempty"           doc:"Operator key OPc (hex 32). Omit to keep existing value."`
-	AMF          *string  `json:"amf,omitempty"           doc:"Authentication Management Field (hex 4)."`
-	ICCID        *string  `json:"iccid,omitempty"`
-	IMSI         *string  `json:"imsi,omitempty"`
-	AlgorithmProfileID *int64 `json:"algorithm_profile_id,omitempty"`
-	BatchName    *string  `json:"batch_name,omitempty"`
-	SIMVendor    *string  `json:"sim_vendor,omitempty"`
-	ESim         *bool    `json:"esim,omitempty"`
-	LPA          *string  `json:"lpa,omitempty"`
-	PIN1         *string  `json:"pin1,omitempty"`
-	PIN2         *string  `json:"pin2,omitempty"`
-	PUK1         *string  `json:"puk1,omitempty"`
-	PUK2         *string  `json:"puk2,omitempty"`
-	KID          *string  `json:"kid,omitempty"`
-	PSK          *string  `json:"psk,omitempty"`
-	DES          *string  `json:"des,omitempty"`
-	ADM1         *string  `json:"adm1,omitempty"`
-	Misc1        *string  `json:"misc1,omitempty"`
-	Misc2        *string  `json:"misc2,omitempty"`
-	Misc3        *string  `json:"misc3,omitempty"`
-	Misc4        *string  `json:"misc4,omitempty"`
+	Ki                 *string `json:"ki,omitempty"            doc:"Authentication key Ki (hex 32). Omit to keep existing value."`
+	OPc                *string `json:"opc,omitempty"           doc:"Operator key OPc (hex 32). Omit to keep existing value."`
+	AMF                *string `json:"amf,omitempty"           doc:"Authentication Management Field (hex 4)."`
+	ICCID              *string `json:"iccid,omitempty"`
+	IMSI               *string `json:"imsi,omitempty"`
+	AlgorithmProfileID *int64  `json:"algorithm_profile_id,omitempty"`
+	BatchName          *string `json:"batch_name,omitempty"`
+	SIMVendor          *string `json:"sim_vendor,omitempty"`
+	ESim               *bool   `json:"esim,omitempty"`
+	LPA                *string `json:"lpa,omitempty"`
+	PIN1               *string `json:"pin1,omitempty"`
+	PIN2               *string `json:"pin2,omitempty"`
+	PUK1               *string `json:"puk1,omitempty"`
+	PUK2               *string `json:"puk2,omitempty"`
+	KID                *string `json:"kid,omitempty"`
+	PSK                *string `json:"psk,omitempty"`
+	DES                *string `json:"des,omitempty"`
+	ADM1               *string `json:"adm1,omitempty"`
+	Misc1              *string `json:"misc1,omitempty"`
+	Misc2              *string `json:"misc2,omitempty"`
+	Misc3              *string `json:"misc3,omitempty"`
+	Misc4              *string `json:"misc4,omitempty"`
 }
 
 type AUCUpdateInput struct {
@@ -234,6 +239,11 @@ func (s *Server) updateAUC(ctx context.Context, input *AUCUpdateInput) (*AUCOutp
 }
 
 func (s *Server) deleteAUC(ctx context.Context, input *AUCIDInput) (*struct{}, error) {
+	if imsi, err := firstString(ctx, s.db, &models.Subscriber{}, "imsi", "auc_id = ?", input.ID); err == nil {
+		return nil, conflictInUse("AUC", strconv.Itoa(input.ID), "subscriber", imsi)
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, huma.Error500InternalServerError("db error", err)
+	}
 	if err := s.db.WithContext(ctx).Delete(&models.AUC{}, input.ID).Error; err != nil {
 		return nil, huma.Error500InternalServerError("db error", err)
 	}

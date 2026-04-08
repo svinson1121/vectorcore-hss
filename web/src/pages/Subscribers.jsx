@@ -8,7 +8,7 @@ import Badge from '../components/Badge.jsx'
 import { useToast } from '../components/Toast.jsx'
 import {
   getSubscribers, createSubscriber, updateSubscriber, deleteSubscriber,
-  getAUCs, getAPNs, getEIRHistory,
+  getAUCs, getAPNs, getEIRHistory, getIMSSubscribers, getSubscriberAttributes, getSubscriberRoutings,
 } from '../api/client.js'
 import SubscriberAttributes from './SubscriberAttributes.jsx'
 import SubscriberRoutings from './SubscriberRoutings.jsx'
@@ -444,6 +444,9 @@ export default function Subscribers() {
   const [aucList, setAucList] = useState([])
   const [apnList, setApnList] = useState([])
   const [eirHistory, setEirHistory] = useState([])
+  const [imsSubscribers, setIMSSubscribers] = useState([])
+  const [subscriberAttributes, setSubscriberAttributes] = useState([])
+  const [subscriberRoutings, setSubscriberRoutings] = useState([])
 
   const { items, total, loading, loadingMore, error, sentinelRef, refresh } = useInfiniteScroll(getSubscribers, search)
 
@@ -451,6 +454,9 @@ export default function Subscribers() {
     getAUCs().then(d => setAucList(Array.isArray(d?.items) ? d.items : [])).catch(() => {})
     getAPNs().then(d => setApnList(Array.isArray(d) ? d : [])).catch(() => {})
     getEIRHistory().then(d => setEirHistory(Array.isArray(d) ? d : [])).catch(() => {})
+    getIMSSubscribers().then(d => setIMSSubscribers(Array.isArray(d?.items) ? d.items : Array.isArray(d) ? d : [])).catch(() => {})
+    getSubscriberAttributes().then(d => setSubscriberAttributes(Array.isArray(d) ? d : [])).catch(() => {})
+    getSubscriberRoutings().then(d => setSubscriberRoutings(Array.isArray(d) ? d : [])).catch(() => {})
   }, [])
 
   const { sorted: sortedSubs, sortKey, sortDir, handleSort } = useSort(items, 'imsi')
@@ -465,6 +471,19 @@ export default function Subscribers() {
     if (!h) return 'Unknown'
     const parts = [h.imei, [h.make, h.model].filter(Boolean).join(' ')].filter(Boolean)
     return parts.join(' ')
+  }
+
+  function subscriberUsageReason(sub) {
+    const imsSub = imsSubscribers.find(row => String(row.imsi) === String(sub.imsi))
+    if (imsSub) return `In use by IMS subscriber ${imsSub.impi || imsSub.imsi}`
+
+    const attrs = subscriberAttributes.find(row => String(row.subscriber_id) === String(sub.subscriber_id))
+    if (attrs) return `In use by subscriber attributes for ${sub.imsi}`
+
+    const routing = subscriberRoutings.find(row => String(row.subscriber_id) === String(sub.subscriber_id))
+    if (routing) return `In use by subscriber routing for ${sub.imsi}`
+
+    return ''
   }
 
   async function handleDelete(sub) {
@@ -580,7 +599,12 @@ export default function Subscribers() {
                     <td>
                       <div style={{ display: 'flex', gap: 4 }}>
                         <button className="btn-icon" title="Edit" onClick={() => setModal({ sub })}><Pencil size={13} /></button>
-                        <button className="btn-icon danger" title="Delete" onClick={() => handleDelete(sub)} disabled={deleting === sub.subscriber_id}>
+                        <button
+                          className="btn-icon danger"
+                          title={subscriberUsageReason(sub) || 'Delete'}
+                          onClick={() => handleDelete(sub)}
+                          disabled={deleting === sub.subscriber_id || !!subscriberUsageReason(sub)}
+                        >
                           {deleting === sub.subscriber_id ? <Spinner size="sm" /> : <Trash2 size={13} />}
                         </button>
                       </div>

@@ -1,11 +1,11 @@
-import React, { useState, useCallback, useRef } from 'react'
+import React, { useState, useCallback, useRef, useEffect } from 'react'
 import { Plus, Pencil, Trash2, RefreshCw, FileCode, Maximize2, Minimize2, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react'
 import { useSort } from '../hooks/useSort.js'
 import Spinner from '../components/Spinner.jsx'
 import Modal from '../components/Modal.jsx'
 import { useToast } from '../components/Toast.jsx'
 import { usePoller } from '../hooks/usePoller.js'
-import { getIFCProfiles, createIFCProfile, updateIFCProfile, deleteIFCProfile } from '../api/client.js'
+import { getIFCProfiles, createIFCProfile, updateIFCProfile, deleteIFCProfile, getIMSSubscribers } from '../api/client.js'
 
 const DEFAULT_IFC_TEMPLATE = `<?xml version="1.0" encoding="UTF-8"?>
 <!--Default iFC template used by VectorCore HSS. Variables: {imsi} {msisdn} {mnc} {mcc}-->
@@ -345,13 +345,24 @@ export default function IFCProfiles({ compact = false }) {
   const [modal, setModal] = useState(null)
   const [delConfirm, setDelConfirm] = useState(null)
   const [deleting, setDeleting] = useState(null)
+  const [imsSubscribers, setIMSSubscribers] = useState([])
 
   const profiles = Array.isArray(data) ? data : []
   const { sorted, sortKey, sortDir, handleSort } = useSort(profiles, 'name')
 
+  useEffect(() => {
+    getIMSSubscribers().then(d => setIMSSubscribers(Array.isArray(d?.items) ? d.items : Array.isArray(d) ? d : [])).catch(() => {})
+  }, [])
+
   function SortIcon({ col }) {
     if (sortKey !== col) return <span className="sort-icon"><ChevronsUpDown size={11} /></span>
     return <span className="sort-icon">{sortDir === 'asc' ? <ChevronUp size={11} /> : <ChevronDown size={11} />}</span>
+  }
+
+  function profileUsageReason(profile) {
+    const ims = imsSubscribers.find(row => Number(row.ifc_profile_id) === profile.ifc_profile_id)
+    if (ims) return `IFC profile is still used by IMS subscriber ${ims.msisdn || ims.impi || ims.imsi || `#${ims.ims_subscriber_id}`}`
+    return ''
   }
 
   async function handleDelete(profile) {
@@ -425,7 +436,12 @@ export default function IFCProfiles({ compact = false }) {
                   <td>
                     <div style={{ display: 'flex', gap: 4 }}>
                       <button className="btn-icon" title="Edit" onClick={() => setModal({ profile: p })}><Pencil size={13} /></button>
-                      <button className="btn-icon danger" title="Delete" onClick={() => setDelConfirm(p)} disabled={deleting === p.ifc_profile_id}>
+                      <button
+                        className="btn-icon danger"
+                        title={profileUsageReason(p) || 'Delete'}
+                        onClick={() => setDelConfirm(p)}
+                        disabled={deleting === p.ifc_profile_id || !!profileUsageReason(p)}
+                      >
                         {deleting === p.ifc_profile_id ? <Spinner size="sm" /> : <Trash2 size={13} />}
                       </button>
                     </div>

@@ -23,13 +23,13 @@ import (
 	"github.com/svinson1121/vectorcore-hss/internal/diameter"
 	"github.com/svinson1121/vectorcore-hss/internal/geored"
 	"github.com/svinson1121/vectorcore-hss/internal/gsup"
-	"github.com/svinson1121/vectorcore-hss/internal/zapgorm"
 	"github.com/svinson1121/vectorcore-hss/internal/metrics"
 	"github.com/svinson1121/vectorcore-hss/internal/models"
 	pgstore "github.com/svinson1121/vectorcore-hss/internal/repository/postgres"
 	"github.com/svinson1121/vectorcore-hss/internal/taccache"
 	"github.com/svinson1121/vectorcore-hss/internal/udm"
 	"github.com/svinson1121/vectorcore-hss/internal/version"
+	"github.com/svinson1121/vectorcore-hss/internal/zapgorm"
 )
 
 // peerListAdapter adapts diameter.PeerTracker to the api.PeerLister interface.
@@ -43,10 +43,14 @@ func (a *authFailureAdapter) RecentAuthFailures() []api.AuthFailure {
 	out := make([]api.AuthFailure, len(raw))
 	for i, f := range raw {
 		out[i] = api.AuthFailure{
-			IMSI:      f.IMSI,
-			Timestamp: f.Timestamp.Format("2006-01-02T15:04:05Z"),
-			Reason:    f.Reason,
-			PeerAddr:  f.PeerAddr,
+			IMSI:        f.IMSI,
+			Timestamp:   f.Timestamp.Format("2006-01-02T15:04:05Z"),
+			Reason:      f.Reason,
+			PeerAddr:    f.PeerAddr,
+			AuthScope:   f.AuthScope,
+			VisitedPLMN: f.VisitedPLMN,
+			VisitedMCC:  f.VisitedMCC,
+			VisitedMNC:  f.VisitedMNC,
 		}
 	}
 	return out

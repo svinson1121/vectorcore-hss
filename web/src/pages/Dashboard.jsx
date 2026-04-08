@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
-import { Users, Activity, Database, Wifi, XCircle, Shield, Clock } from 'lucide-react'
+import { Users, Activity, Database, Wifi, XCircle, Shield, Clock, AlertTriangle } from 'lucide-react'
 import StatCard from '../components/StatCard.jsx'
 import Spinner from '../components/Spinner.jsx'
 import {
@@ -52,6 +52,31 @@ function buildCommandData(metrics) {
     .sort((a, b) => b.total - a.total)
 }
 
+function authScopeLabel(scope) {
+  if (scope === 'local') return 'Local'
+  if (scope === 'roaming') return 'Roaming'
+  return 'Unknown'
+}
+
+function authScopeStyle(scope) {
+  if (scope === 'local') {
+    return {
+      color: 'var(--success)',
+      background: 'var(--success-bg)',
+    }
+  }
+  if (scope === 'roaming') {
+    return {
+      color: 'var(--warning)',
+      background: 'var(--warning-bg)',
+    }
+  }
+  return {
+    color: 'var(--text-muted)',
+    background: 'var(--muted-bg)',
+  }
+}
+
 export default function Dashboard() {
   const [subscribers, setSubscribers] = useState([])
   const [servingAPNs, setServingAPNs] = useState([])
@@ -59,6 +84,7 @@ export default function Dashboard() {
   const [peers, setPeers] = useState([])
   const [metrics, setMetrics] = useState({})
   const [authFailures, setAuthFailures] = useState([])
+  const [authFailuresError, setAuthFailuresError] = useState(null)
   const [health, setHealth] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -67,13 +93,15 @@ export default function Dashboard() {
 
   const fetchAll = useCallback(async () => {
     try {
-      const [subs, apns, pdus, promText, peersData, failures, healthData] = await Promise.all([
+      const [subs, apns, pdus, promText, peersData, failuresResult, healthData] = await Promise.all([
         getSubscribers().catch(() => []),
         getServingAPNs().catch(() => []),
         getPDUSessions().catch(() => []),
         getPrometheusText().catch(() => ''),
         getDiameterPeers().catch(() => []),
-        getAuthFailures().catch(() => []),
+        getAuthFailures()
+          .then(data => ({ data, error: null }))
+          .catch(err => ({ data: [], error: err.message || 'Failed to load auth failures' })),
         getHealth().catch(() => null),
       ])
       if (!mountedRef.current) return
@@ -82,7 +110,8 @@ export default function Dashboard() {
       setPDUSessions(Array.isArray(pdus) ? pdus : [])
       setPeers(Array.isArray(peersData) ? peersData : [])
       setMetrics(parsePrometheusText(promText || ''))
-      setAuthFailures(Array.isArray(failures) ? failures : [])
+      setAuthFailures(Array.isArray(failuresResult?.data) ? failuresResult.data : [])
+      setAuthFailuresError(failuresResult?.error || null)
       setHealth(healthData ?? null)
       setError(null)
       setLoading(false)
@@ -198,25 +227,72 @@ export default function Dashboard() {
       )}
 
       {/* Recent S6a Auth Failures */}
-      {authFailures.length > 0 && (
+      {(authFailuresError || authFailures.length > 0) && (
         <>
           <div className="section-title" style={{ color: 'var(--error, #f85149)' }}>Recent S6a Auth Failures</div>
+          {authFailuresError && (
+            <div
+              className="mb-16"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '10px 12px',
+                border: '1px solid var(--danger)',
+                borderRadius: 'var(--radius-sm)',
+                background: 'var(--danger-bg)',
+                color: 'var(--danger)',
+                fontSize: '0.82rem',
+              }}
+            >
+              <AlertTriangle size={15} />
+              <span>{authFailuresError}</span>
+            </div>
+          )}
           <div className="table-container mb-16">
             <table>
               <thead>
                 <tr>
                   <th>IMSI</th>
                   <th>Time</th>
+                  <th>Scope</th>
+                  <th>Visited PLMN</th>
                   <th>Reason</th>
                   <th>Peer</th>
                 </tr>
               </thead>
               <tbody>
-                {authFailures.map((f, i) => (
+                {authFailures.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} style={{ padding: '16px', color: 'var(--text-muted)', fontSize: '0.82rem' }}>
+                      {authFailuresError ? 'Auth failure history is temporarily unavailable.' : 'No recent S6a auth failures recorded.'}
+                    </td>
+                  </tr>
+                ) : authFailures.map((f, i) => (
                   <tr key={i}>
                     <td className="mono" style={{ fontSize: '0.8rem' }}>{f.imsi || '—'}</td>
                     <td className="mono" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                       {f.timestamp ? new Date(f.timestamp).toLocaleString() : '—'}
+                    </td>
+                    <td style={{ fontSize: '0.78rem' }}>
+                      <span
+                        style={{
+                          ...authScopeStyle(f.auth_scope),
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          padding: '2px 8px',
+                          borderRadius: 999,
+                          fontWeight: 600,
+                        }}
+                      >
+                        {authScopeLabel(f.auth_scope)}
+                      </span>
+                    </td>
+                    <td className="mono" style={{ fontSize: '0.8rem' }}>
+                      {f.visited_mcc || f.visited_mnc ? `${f.visited_mcc || '—'}/${f.visited_mnc || '—'}` : '—'}
+                      {f.visited_plmn ? (
+                        <div style={{ color: 'var(--text-muted)', fontSize: '0.74rem' }}>{f.visited_plmn}</div>
+                      ) : null}
                     </td>
                     <td style={{ fontSize: '0.8rem', color: 'var(--error, #f85149)' }}>{f.reason || '—'}</td>
                     <td className="mono" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{f.peer_addr || '—'}</td>

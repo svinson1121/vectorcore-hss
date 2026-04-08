@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,13 +22,17 @@ type SubscriberListInput struct {
 	Offset int    `query:"offset" doc:"Rows to skip"                                        default:"0"  minimum:"0"`
 }
 type SubscriberListBody struct {
-	Total int64              `json:"total"`
+	Total int64               `json:"total"`
 	Items []models.Subscriber `json:"items"`
 }
 type SubscriberListOutput struct{ Body SubscriberListBody }
 type SubscriberOutput struct{ Body *models.Subscriber }
-type SubscriberIDInput struct{ ID int `path:"id"` }
-type SubscriberIMSIInput struct{ IMSI string `path:"imsi"` }
+type SubscriberIDInput struct {
+	ID int `path:"id"`
+}
+type SubscriberIMSIInput struct {
+	IMSI string `path:"imsi"`
+}
 type SubscriberCreateInput struct{ Body *models.Subscriber }
 type SubscriberUpdateInput struct {
 	ID   int `path:"id"`
@@ -155,6 +160,22 @@ func (s *Server) deleteSubscriber(ctx context.Context, input *SubscriberIDInput)
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, huma.Error404NotFound("not found", err)
 		}
+		return nil, huma.Error500InternalServerError("db error", err)
+	}
+	if msisdn, err := firstString(ctx, s.db, &models.IMSSubscriber{}, "msisdn", "imsi = ?", sub.IMSI); err == nil {
+		return nil, conflictInUse("subscriber", sub.IMSI, "IMS subscriber", msisdn)
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, huma.Error500InternalServerError("db error", err)
+	}
+	if key, err := firstString(ctx, s.db, &models.SubscriberAttribute{}, "key", "subscriber_id = ?", sub.SubscriberID); err == nil {
+		return nil, conflictInUse("subscriber", sub.IMSI, "subscriber attribute", key)
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, huma.Error500InternalServerError("db error", err)
+	}
+	var routing models.SubscriberRouting
+	if err := s.db.WithContext(ctx).Where("subscriber_id = ?", sub.SubscriberID).Take(&routing).Error; err == nil {
+		return nil, conflictInUse("subscriber", sub.IMSI, "subscriber routing", strconv.Itoa(routing.SubscriberRoutingID))
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, huma.Error500InternalServerError("db error", err)
 	}
 	if err := s.db.WithContext(ctx).Delete(&sub).Error; err != nil {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -15,7 +16,9 @@ import (
 
 type APNListOutput struct{ Body []models.APN }
 type APNOutput struct{ Body *models.APN }
-type APNIDInput struct{ ID int `path:"id"` }
+type APNIDInput struct {
+	ID int `path:"id"`
+}
 type APNCreateInput struct{ Body *models.APN }
 type APNUpdateInput struct {
 	ID   int `path:"id"`
@@ -79,6 +82,23 @@ func (s *Server) updateAPN(ctx context.Context, input *APNUpdateInput) (*APNOutp
 }
 
 func (s *Server) deleteAPN(ctx context.Context, input *APNIDInput) (*struct{}, error) {
+	if imsi, err := firstString(ctx, s.db, &models.Subscriber{}, "imsi", "default_apn = ?", input.ID); err == nil {
+		return nil, conflictInUse("APN", strconv.Itoa(input.ID), "subscriber default APN", imsi)
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, huma.Error500InternalServerError("db error", err)
+	}
+	where, token := csvContainsID("apn_list", input.ID)
+	if imsi, err := firstString(ctx, s.db, &models.Subscriber{}, "imsi", where, token); err == nil {
+		return nil, conflictInUse("APN", strconv.Itoa(input.ID), "subscriber APN list", imsi)
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, huma.Error500InternalServerError("db error", err)
+	}
+	var routing models.SubscriberRouting
+	if err := s.db.WithContext(ctx).Where("apn_id = ?", input.ID).Take(&routing).Error; err == nil {
+		return nil, conflictInUse("APN", strconv.Itoa(input.ID), "subscriber routing", strconv.Itoa(routing.SubscriberRoutingID))
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, huma.Error500InternalServerError("db error", err)
+	}
 	if err := s.db.WithContext(ctx).Delete(&models.APN{}, input.ID).Error; err != nil {
 		return nil, huma.Error500InternalServerError("db error", err)
 	}

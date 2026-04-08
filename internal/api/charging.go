@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -16,7 +17,9 @@ import (
 
 type ChargingRuleListOutput struct{ Body []models.ChargingRule }
 type ChargingRuleOutput struct{ Body *models.ChargingRule }
-type ChargingRuleIDInput struct{ ID int `path:"id"` }
+type ChargingRuleIDInput struct {
+	ID int `path:"id"`
+}
 type ChargingRuleCreateInput struct{ Body *models.ChargingRule }
 type ChargingRuleUpdateInput struct {
 	ID   int `path:"id"`
@@ -74,6 +77,12 @@ func (s *Server) updateChargingRule(ctx context.Context, input *ChargingRuleUpda
 }
 
 func (s *Server) deleteChargingRule(ctx context.Context, input *ChargingRuleIDInput) (*struct{}, error) {
+	where, token := csvContainsID("charging_rule_list", input.ID)
+	if apnName, err := firstString(ctx, s.db, &models.APN{}, "apn", where, token); err == nil {
+		return nil, conflictInUse("charging rule", strconv.Itoa(input.ID), "APN", apnName)
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, huma.Error500InternalServerError("db error", err)
+	}
 	if err := s.db.WithContext(ctx).Delete(&models.ChargingRule{}, input.ID).Error; err != nil {
 		return nil, huma.Error500InternalServerError("db error", err)
 	}
@@ -84,7 +93,9 @@ func (s *Server) deleteChargingRule(ctx context.Context, input *ChargingRuleIDIn
 
 type TFTListOutput struct{ Body []models.TFT }
 type TFTOutput struct{ Body *models.TFT }
-type TFTIDInput struct{ ID int `path:"id"` }
+type TFTIDInput struct {
+	ID int `path:"id"`
+}
 type TFTCreateInput struct{ Body *models.TFT }
 type TFTUpdateInput struct {
 	ID   int `path:"id"`
@@ -142,7 +153,19 @@ func (s *Server) updateTFT(ctx context.Context, input *TFTUpdateInput) (*TFTOutp
 }
 
 func (s *Server) deleteTFT(ctx context.Context, input *TFTIDInput) (*struct{}, error) {
-	if err := s.db.WithContext(ctx).Delete(&models.TFT{}, input.ID).Error; err != nil {
+	var tft models.TFT
+	if err := s.db.WithContext(ctx).First(&tft, input.ID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, huma.Error404NotFound("not found", err)
+		}
+		return nil, huma.Error500InternalServerError("db error", err)
+	}
+	if ruleName, err := firstString(ctx, s.db, &models.ChargingRule{}, "rule_name", "tft_group_id = ?", tft.TFTGroupID); err == nil {
+		return nil, conflictInUse("TFT entry", strconv.Itoa(input.ID), "charging rule", ruleName)
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, huma.Error500InternalServerError("db error", err)
+	}
+	if err := s.db.WithContext(ctx).Delete(&tft).Error; err != nil {
 		return nil, huma.Error500InternalServerError("db error", err)
 	}
 	return nil, nil

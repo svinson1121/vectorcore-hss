@@ -4,7 +4,7 @@ import Spinner from '../components/Spinner.jsx'
 import Modal from '../components/Modal.jsx'
 import { useToast } from '../components/Toast.jsx'
 import { usePoller } from '../hooks/usePoller.js'
-import { getAPNs, createAPN, updateAPN, deleteAPN, getChargingRules } from '../api/client.js'
+import { getAPNs, createAPN, updateAPN, deleteAPN, getChargingRules, getSubscribers, getSubscriberRoutings } from '../api/client.js'
 import ChargingRules from './ChargingRules.jsx'
 
 const TAB_STYLE = (active) => ({
@@ -354,13 +354,27 @@ export default function APNs() {
   const [modal, setModal] = useState(null)
   const [deleting, setDeleting] = useState(null)
   const [chargingRules, setChargingRules] = useState([])
+  const [subscribers, setSubscribers] = useState([])
+  const [subscriberRoutings, setSubscriberRoutings] = useState([])
 
   useEffect(() => {
     getChargingRules().then(d => setChargingRules(Array.isArray(d) ? d : [])).catch(() => {})
+    getSubscribers().then(d => setSubscribers(Array.isArray(d?.items) ? d.items : [])).catch(() => {})
+    getSubscriberRoutings().then(d => setSubscriberRoutings(Array.isArray(d) ? d : [])).catch(() => {})
   }, [])
 
   const apns = Array.isArray(data) ? data : []
   const sortedApns = [...apns].sort((a, b) => (a.apn || '').localeCompare(b.apn || ''))
+
+  function apnUsageReason(apn) {
+    const defaultSub = subscribers.find(row => Number(row.default_apn) === apn.apn_id)
+    if (defaultSub) return `APN is still used as default APN by subscriber ${defaultSub.imsi}`
+    const listSub = subscribers.find(row => String(row.apn_list || '').split(',').map(v => v.trim()).filter(Boolean).includes(String(apn.apn_id)))
+    if (listSub) return `APN is still used by subscriber ${listSub.imsi}`
+    const routing = subscriberRoutings.find(row => Number(row.apn_id) === apn.apn_id)
+    if (routing) return `APN is still used by subscriber routing #${routing.subscriber_routing_id}`
+    return ''
+  }
 
   async function handleDelete(apn) {
     if (!window.confirm(`Delete APN "${apn.apn}"?`)) return
@@ -448,7 +462,12 @@ export default function APNs() {
                     <td>
                       <div style={{ display: 'flex', gap: 4 }}>
                         <button className="btn-icon" title="Edit" onClick={() => setModal({ apn })}><Pencil size={13} /></button>
-                        <button className="btn-icon danger" title="Delete" onClick={() => handleDelete(apn)} disabled={deleting === apn.apn_id}>
+                        <button
+                          className="btn-icon danger"
+                          title={apnUsageReason(apn) || 'Delete'}
+                          onClick={() => handleDelete(apn)}
+                          disabled={deleting === apn.apn_id || !!apnUsageReason(apn)}
+                        >
                           {deleting === apn.apn_id ? <Spinner size="sm" /> : <Trash2 size={13} />}
                         </button>
                       </div>

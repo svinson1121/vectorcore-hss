@@ -5,7 +5,7 @@ import { useInfiniteScroll } from '../hooks/useInfiniteScroll.js'
 import Spinner from '../components/Spinner.jsx'
 import Modal from '../components/Modal.jsx'
 import { useToast } from '../components/Toast.jsx'
-import { getAUCs, createAUC, updateAUC, deleteAUC, getAlgorithmProfiles } from '../api/client.js'
+import { getAUCs, createAUC, updateAUC, deleteAUC, getAlgorithmProfiles, getSubscribers } from '../api/client.js'
 import AlgorithmProfiles from './AlgorithmProfiles.jsx'
 
 const TAB_STYLE = (active) => ({
@@ -301,11 +301,13 @@ export default function AUC() {
   const [search, setSearch] = useState('')
   const [modal, setModal] = useState(null)
   const [deleting, setDeleting] = useState(null)
+  const [subscribers, setSubscribers] = useState([])
 
   const { items, total, loading, loadingMore, error, sentinelRef, refresh } = useInfiniteScroll(getAUCs, search)
 
   useEffect(() => {
     getAlgorithmProfiles().then(d => setAlgorithmProfiles(Array.isArray(d) ? d : [])).catch(() => {})
+    getSubscribers().then(d => setSubscribers(Array.isArray(d?.items) ? d.items : [])).catch(() => {})
   }, [])
 
   const profileMap = {}
@@ -320,6 +322,12 @@ export default function AUC() {
   function SortIcon({ col }) {
     if (sortKey !== col) return <span className="sort-icon"><ChevronsUpDown size={11} /></span>
     return <span className="sort-icon">{sortDir === 'asc' ? <ChevronUp size={11} /> : <ChevronDown size={11} />}</span>
+  }
+
+  function aucUsageReason(auc) {
+    const sub = subscribers.find(row => Number(row.auc_id) === auc.auc_id)
+    if (sub) return `AUC is still used by subscriber ${sub.imsi}`
+    return ''
   }
 
   async function handleDelete(auc) {
@@ -414,7 +422,12 @@ export default function AUC() {
                     <td>
                       <div style={{ display: 'flex', gap: 4 }}>
                         <button className="btn-icon" title="Edit" onClick={() => setModal({ auc: a })}><Pencil size={13} /></button>
-                        <button className="btn-icon danger" title="Delete" onClick={() => handleDelete(a)} disabled={deleting === a.auc_id}>
+                        <button
+                          className="btn-icon danger"
+                          title={aucUsageReason(a) || 'Delete'}
+                          onClick={() => handleDelete(a)}
+                          disabled={deleting === a.auc_id || !!aucUsageReason(a)}
+                        >
                           {deleting === a.auc_id ? <Spinner size="sm" /> : <Trash2 size={13} />}
                         </button>
                       </div>

@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useEffect } from 'react'
 import { Plus, Pencil, Trash2, RefreshCw, Zap } from 'lucide-react'
 import Spinner from '../components/Spinner.jsx'
 import Modal from '../components/Modal.jsx'
@@ -7,6 +7,7 @@ import { usePoller } from '../hooks/usePoller.js'
 import {
   getChargingRules, createChargingRule, updateChargingRule, deleteChargingRule,
   getTFTs, createTFT, updateTFT, deleteTFT,
+  getAPNs,
 } from '../api/client.js'
 
 const SECTION_STYLE = {
@@ -315,9 +316,26 @@ export default function ChargingRules({ compact = false }) {
   const [delTFTConfirm, setDelTFTConfirm] = useState(null)
   const [deletingRule, setDeletingRule] = useState(null)
   const [deletingTFT, setDeletingTFT] = useState(null)
+  const [apns, setAPNs] = useState([])
 
   const rules = Array.isArray(rulesData) ? [...rulesData].sort((a, b) => (a.rule_name || '').localeCompare(b.rule_name || '')) : []
   const tfts = Array.isArray(tftsData) ? [...tftsData].sort((a, b) => (a.tft_group_id ?? 0) - (b.tft_group_id ?? 0) || (a.rule_name || '').localeCompare(b.rule_name || '')) : []
+
+  useEffect(() => {
+    getAPNs().then(d => setAPNs(Array.isArray(d) ? d : [])).catch(() => {})
+  }, [])
+
+  function ruleUsageReason(rule) {
+    const apn = apns.find(row => String(row.charging_rule_list || '').split(',').map(v => v.trim()).filter(Boolean).includes(String(rule.charging_rule_id)))
+    if (apn) return `Charging rule is still used by APN ${apn.apn}`
+    return ''
+  }
+
+  function tftUsageReason(tft) {
+    const rule = rules.find(row => Number(row.tft_group_id) === Number(tft.tft_group_id))
+    if (rule) return `TFT group is still used by charging rule ${rule.rule_name}`
+    return ''
+  }
 
   function refreshAll() {
     refreshRules()
@@ -426,9 +444,9 @@ export default function ChargingRules({ compact = false }) {
                       </button>
                       <button
                         className="btn-icon danger"
-                        title="Delete"
+                        title={ruleUsageReason(rule) || 'Delete'}
                         onClick={() => setDelRuleConfirm(rule)}
-                        disabled={deletingRule === rule.charging_rule_id}
+                        disabled={deletingRule === rule.charging_rule_id || !!ruleUsageReason(rule)}
                       >
                         {deletingRule === rule.charging_rule_id ? <Spinner size="sm" /> : <Trash2 size={13} />}
                       </button>
@@ -479,9 +497,9 @@ export default function ChargingRules({ compact = false }) {
                       </button>
                       <button
                         className="btn-icon danger"
-                        title="Delete"
+                        title={tftUsageReason(tft) || 'Delete'}
                         onClick={() => setDelTFTConfirm(tft)}
-                        disabled={deletingTFT === tft.tft_id}
+                        disabled={deletingTFT === tft.tft_id || !!tftUsageReason(tft)}
                       >
                         {deletingTFT === tft.tft_id ? <Spinner size="sm" /> : <Trash2 size={13} />}
                       </button>
