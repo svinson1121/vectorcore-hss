@@ -46,15 +46,29 @@ type PeerLister interface {
 	List() []ConnectedPeer
 }
 
+// AuthFailureLister returns a snapshot of recent S6a AIR authentication failures.
+type AuthFailureLister interface {
+	RecentAuthFailures() []AuthFailure
+}
+
+// AuthFailure is a single failed S6a AIR attempt exposed by the API.
+type AuthFailure struct {
+	IMSI      string `json:"imsi"`
+	Timestamp string `json:"timestamp"`
+	Reason    string `json:"reason"`
+	PeerAddr  string `json:"peer_addr"`
+}
+
 type Server struct {
-	db     *gorm.DB
-	log    *zap.Logger
-	cfg    config.APIConfig
-	clr    CLRSender        // nil when CLR is not wired (e.g. Diameter disabled)
-	cache  CacheInvalidator // nil when Diameter store is not wired
-	tac    *taccache.Cache  // nil when TAC DB is disabled in config
-	geored GeoredManager    // nil when GeoRed is disabled
-	peers  PeerLister       // nil when Diameter is not wired
+	db           *gorm.DB
+	log          *zap.Logger
+	cfg          config.APIConfig
+	clr          CLRSender        // nil when CLR is not wired (e.g. Diameter disabled)
+	cache        CacheInvalidator // nil when Diameter store is not wired
+	tac          *taccache.Cache  // nil when TAC DB is disabled in config
+	geored       GeoredManager    // nil when GeoRed is disabled
+	peers        PeerLister       // nil when Diameter is not wired
+	authFailures AuthFailureLister // nil when Diameter is not wired
 }
 
 // WithTAC attaches the TAC cache so API writes keep the cache in sync.
@@ -71,6 +85,12 @@ func New(db *gorm.DB, cfg config.APIConfig, log *zap.Logger) *Server {
 // WithPeers attaches a Diameter peer lister so the API can expose connected peers.
 func (s *Server) WithPeers(p PeerLister) *Server {
 	s.peers = p
+	return s
+}
+
+// WithAuthFailures attaches an auth failure lister so the API can expose recent S6a failures.
+func (s *Server) WithAuthFailures(a AuthFailureLister) *Server {
+	s.authFailures = a
 	return s
 }
 
@@ -160,6 +180,9 @@ func (s *Server) registerRoutes(api huma.API) {
 	}
 	if s.peers != nil {
 		registerDiameterPeersRoutes(s, api)
+	}
+	if s.authFailures != nil {
+		registerAuthFailureRoutes(s, api)
 	}
 }
 

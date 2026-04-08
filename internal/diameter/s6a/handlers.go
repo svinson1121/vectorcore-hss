@@ -1,12 +1,25 @@
 package s6a
 
 import (
+	"sync"
+	"time"
+
 	"github.com/fiorix/go-diameter/v4/diam"
 	"github.com/svinson1121/vectorcore-hss/internal/config"
 	"github.com/svinson1121/vectorcore-hss/internal/geored"
 	"github.com/svinson1121/vectorcore-hss/internal/repository"
 	"go.uber.org/zap"
 )
+
+const authFailureRingSize = 10
+
+// AuthFailure records a single failed S6a AIR authentication attempt.
+type AuthFailure struct {
+	IMSI      string    `json:"imsi"`
+	Timestamp time.Time `json:"timestamp"`
+	Reason    string    `json:"reason"`
+	PeerAddr  string    `json:"peer_addr"`
+}
 
 // PeerLookup lets ULR find an old MME's active connection to send CLR.
 // Implemented by *diameter.ConnTracker; the interface breaks the import cycle
@@ -32,6 +45,35 @@ type Handlers struct {
 	// Wired to s6c.Handlers.SendALSCForIMSI by the server to trigger
 	// Alert-Service-Centre for any pending Message Waiting Data.
 	onRegister func(imsi string)
+
+	failMu       sync.Mutex
+	authFailures []AuthFailure
+}
+
+// RecordAuthFailure appends a failure to the in-memory ring buffer (last 10).
+func (h *Handlers) RecordAuthFailure(imsi, peerAddr, reason string) {
+	h.failMu.Lock()
+	defer h.failMu.Unlock()
+	h.authFailures = append(h.authFailures, AuthFailure{
+		IMSI:      imsi,
+		Timestamp: time.Now().UTC(),
+		Reason:    reason,
+		PeerAddr:  peerAddr,
+	})
+	if len(h.authFailures) > authFailureRingSize {
+		h.authFailures = h.authFailures[len(h.authFailures)-authFailureRingSize:]
+	}
+}
+
+// RecentAuthFailures returns a copy of recent failures, newest first.
+func (h *Handlers) RecentAuthFailures() []AuthFailure {
+	h.failMu.Lock()
+	defer h.failMu.Unlock()
+	out := make([]AuthFailure, len(h.authFailures))
+	for i, f := range h.authFailures {
+		out[len(h.authFailures)-1-i] = f
+	}
+	return out
 }
 
 func NewHandlers(cfg *config.Config, store repository.Repository, log *zap.Logger, peers PeerLookup) *Handlers {

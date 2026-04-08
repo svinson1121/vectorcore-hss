@@ -26,36 +26,45 @@ func (h *Handlers) AIR(conn diam.Conn, msg *diam.Message) (*diam.Message, error)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	peer := conn.RemoteAddr().String()
+
 	sub, err := h.store.GetSubscriberByIMSI(ctx, imsi)
 	if err == repository.ErrNotFound {
 		h.log.Warn("s6a: AIR unknown IMSI", zap.String("imsi", imsi))
+		h.RecordAuthFailure(imsi, peer, "Unknown IMSI")
 		return avputil.ConstructFailureAnswer(msg, air.SessionID, h.originHost, h.originRealm, avputil.DiameterErrorUserUnknown), err
 	}
 	if err != nil {
+		h.RecordAuthFailure(imsi, peer, "Database error (subscriber lookup)")
 		return avputil.ConstructFailureAnswer(msg, air.SessionID, h.originHost, h.originRealm, avputil.DiameterAuthenticationDataUnavailable), err
 	}
 	if sub.Enabled != nil && !*sub.Enabled {
 		h.log.Warn("s6a: AIR subscriber disabled", zap.String("imsi", imsi))
+		h.RecordAuthFailure(imsi, peer, "Subscriber disabled")
 		return avputil.ConstructFailureAnswer(msg, air.SessionID, h.originHost, h.originRealm, avputil.DiameterErrorUnknownEPSSubscription), nil
 	}
 
 	if err := h.checkRoaming(ctx, sub, []byte(air.VisitedPLMNID)); err != nil {
 		h.log.Warn("s6a: AIR roaming denied", zap.String("imsi", imsi), zap.Error(err))
+		h.RecordAuthFailure(imsi, peer, "Roaming not allowed")
 		return avputil.ConstructFailureAnswer(msg, air.SessionID, h.originHost, h.originRealm, avputil.DiameterErrorRoamingNotAllowed), nil
 	}
 
 	auc, err := h.store.GetAUCByIMSI(ctx, imsi)
 	if err == repository.ErrNotFound {
 		h.log.Warn("s6a: AIR unknown IMSI (no AUC)", zap.String("imsi", imsi))
+		h.RecordAuthFailure(imsi, peer, "Unknown IMSI (no AUC record)")
 		return avputil.ConstructFailureAnswer(msg, air.SessionID, h.originHost, h.originRealm, avputil.DiameterErrorUserUnknown), err
 	}
 	if err != nil {
+		h.RecordAuthFailure(imsi, peer, "Database error (AUC lookup)")
 		return avputil.ConstructFailureAnswer(msg, air.SessionID, h.originHost, h.originRealm, avputil.DiameterAuthenticationDataUnavailable), err
 	}
 
 	profile, err := crypto.LoadProfile(ctx, h.store, auc.AlgorithmProfileID)
 	if err != nil {
 		h.log.Error("s6a: AIR profile load failed", zap.String("imsi", imsi), zap.Error(err))
+		h.RecordAuthFailure(imsi, peer, "Algorithm profile load failed")
 		return avputil.ConstructFailureAnswer(msg, air.SessionID, h.originHost, h.originRealm, avputil.DiameterAuthenticationDataUnavailable), err
 	}
 
@@ -66,13 +75,16 @@ func (h *Handlers) AIR(conn diam.Conn, msg *diam.Message) (*diam.Message, error)
 			newSQN, err := crypto.ResyncSQNFull(auc, profile, resync)
 			if err != nil {
 				h.log.Error("s6a: AIR resync failed", zap.Error(err))
+				h.RecordAuthFailure(imsi, peer, "SQN resync failed")
 				return avputil.ConstructFailureAnswer(msg, air.SessionID, h.originHost, h.originRealm, avputil.DiameterAuthenticationDataUnavailable), err
 			}
 			if err := h.store.ResyncSQN(ctx, auc.AUCID, newSQN+100); err != nil {
+				h.RecordAuthFailure(imsi, peer, "SQN resync update failed")
 				return avputil.ConstructFailureAnswer(msg, air.SessionID, h.originHost, h.originRealm, avputil.DiameterAuthenticationDataUnavailable), err
 			}
 			auc, err = h.store.GetAUCByIMSI(ctx, imsi)
 			if err != nil {
+				h.RecordAuthFailure(imsi, peer, "SQN reload failed")
 				return avputil.ConstructFailureAnswer(msg, air.SessionID, h.originHost, h.originRealm, avputil.DiameterAuthenticationDataUnavailable), err
 			}
 		}
@@ -89,12 +101,14 @@ func (h *Handlers) AIR(conn diam.Conn, msg *diam.Message) (*diam.Message, error)
 	plmn := []byte(air.VisitedPLMNID)
 	if len(plmn) != 3 {
 		err := fmt.Errorf("bad PLMN length %d", len(plmn))
+		h.RecordAuthFailure(imsi, peer, "Invalid PLMN length")
 		return avputil.ConstructFailureAnswer(msg, air.SessionID, h.originHost, h.originRealm, avputil.DiameterAuthenticationDataUnavailable), err
 	}
 
 	vectors, err := crypto.GenerateEUTRANVectors(auc, profile, plmn, numVectors, h.store, ctx)
 	if err != nil {
 		h.log.Error("s6a: AIR vector generation failed", zap.String("imsi", imsi), zap.Error(err))
+		h.RecordAuthFailure(imsi, peer, "Vector generation failed")
 		return avputil.ConstructFailureAnswer(msg, air.SessionID, h.originHost, h.originRealm, avputil.DiameterAuthenticationDataUnavailable), err
 	}
 

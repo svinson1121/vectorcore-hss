@@ -7,7 +7,7 @@ ETCDIR=$(PREFIX)/etc
 LOGDIR=$(PREFIX)/log
 SYSTEMD=/lib/systemd/system/
 
-build: deps
+build: ui deps
 	mkdir -p bin
 	go build -o bin/$(BINARY) ./cmd/hss
 

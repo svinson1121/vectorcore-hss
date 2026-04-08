@@ -22,6 +22,7 @@ type HealthResponse struct {
 	Body struct {
 		Status        string  `json:"status"         doc:"Always 'ok' when the API is reachable"`
 		UptimeSeconds float64 `json:"uptime_seconds" doc:"Seconds since the HSS process started"`
+		StartedAt     string  `json:"started_at"     doc:"RFC3339 timestamp of when the HSS process started"`
 		Version       string  `json:"version"        doc:"Running application version"`
 	}
 }
@@ -53,6 +54,7 @@ func registerVersionRoutes(api huma.API) {
 		resp := &HealthResponse{}
 		resp.Body.Status = "ok"
 		resp.Body.UptimeSeconds = time.Since(version.StartTime).Seconds()
+		resp.Body.StartedAt = version.StartTime.UTC().Format(time.RFC3339)
 		resp.Body.Version = version.AppVersion
 		return resp, nil
 	})

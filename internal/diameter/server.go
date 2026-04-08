@@ -54,6 +54,10 @@ type Server struct {
 // directly connected Diameter peers.
 func (s *Server) Peers() *PeerTracker { return s.pt }
 
+// S6aHandlers returns the S6a handler set, e.g. so the API layer can read
+// the recent auth failure ring buffer.
+func (s *Server) S6aHandlers() *s6a.Handlers { return s.s6a }
+
 // WithTAC attaches a TAC cache to the S13 handler so device make/model is
 // written into EIR history at check time.
 func (s *Server) WithTAC(c *taccache.Cache) *Server {

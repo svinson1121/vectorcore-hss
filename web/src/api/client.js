@@ -120,6 +120,9 @@ export const getPDUSessions = () => request('GET', '/oam/pdu_session')
 // Diameter Peers
 export const getDiameterPeers = () => request('GET', '/oam/diameter/peers').then(r => r?.peers ?? r)
 
+// Auth Failures
+export const getAuthFailures = () => request('GET', '/oam/diameter/auth_failures').then(r => r?.failures ?? [])
+
 // CLR
 export const sendCLR = (imsi) => request('POST', `/subscriber/clr/${encodeURIComponent(imsi)}`)
 

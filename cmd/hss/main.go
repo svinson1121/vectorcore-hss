@@ -35,6 +35,23 @@ import (
 // peerListAdapter adapts diameter.PeerTracker to the api.PeerLister interface.
 type peerListAdapter struct{ pt *diameter.PeerTracker }
 
+// authFailureAdapter adapts s6a.Handlers to the api.AuthFailureLister interface.
+type authFailureAdapter struct{ srv *diameter.Server }
+
+func (a *authFailureAdapter) RecentAuthFailures() []api.AuthFailure {
+	raw := a.srv.S6aHandlers().RecentAuthFailures()
+	out := make([]api.AuthFailure, len(raw))
+	for i, f := range raw {
+		out[i] = api.AuthFailure{
+			IMSI:      f.IMSI,
+			Timestamp: f.Timestamp.Format("2006-01-02T15:04:05Z"),
+			Reason:    f.Reason,
+			PeerAddr:  f.PeerAddr,
+		}
+	}
+	return out
+}
+
 func (a *peerListAdapter) List() []api.ConnectedPeer {
 	raw := a.pt.List()
 	out := make([]api.ConnectedPeer, len(raw))
@@ -176,7 +193,7 @@ func main() {
 	go func() { errCh <- srv.Start() }()
 
 	if cfg.API.Enabled {
-		apiSrv := api.New(db, cfg.API, log).WithCLR(srv).WithCache(store).WithPeers(&peerListAdapter{srv.Peers()})
+		apiSrv := api.New(db, cfg.API, log).WithCLR(srv).WithCache(store).WithPeers(&peerListAdapter{srv.Peers()}).WithAuthFailures(&authFailureAdapter{srv})
 		if tacCache != nil {
 			apiSrv.WithTAC(tacCache)
 		}

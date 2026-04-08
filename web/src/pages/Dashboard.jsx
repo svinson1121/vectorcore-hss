@@ -2,13 +2,25 @@ import React, { useState, useEffect, useRef, useCallback } from 'react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
-import { Users, Activity, Database, Wifi, XCircle, Shield, Cpu } from 'lucide-react'
+import { Users, Activity, Database, Wifi, XCircle, Shield, Clock } from 'lucide-react'
 import StatCard from '../components/StatCard.jsx'
 import Spinner from '../components/Spinner.jsx'
 import {
   getSubscribers, getServingAPNs, getPDUSessions, getDiameterPeers,
-  getPrometheusText, parsePrometheusText, sumMetric,
+  getPrometheusText, parsePrometheusText, sumMetric, getAuthFailures, getHealth,
 } from '../api/client.js'
+
+function formatUptime(s) {
+  if (s == null || isNaN(s)) return '—'
+  const d = Math.floor(s / 86400)
+  const h = Math.floor((s % 86400) / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const sec = Math.floor(s % 60)
+  if (d > 0) return `${d}d ${h}h ${m}m`
+  if (h > 0) return `${h}h ${m}m ${sec}s`
+  if (m > 0) return `${m}m ${sec}s`
+  return `${sec}s`
+}
 
 const CustomTooltip = ({ active, payload, label }) => {
   if (!active || !payload || !payload.length) return null
@@ -46,6 +58,8 @@ export default function Dashboard() {
   const [pduSessions, setPDUSessions] = useState([])
   const [peers, setPeers] = useState([])
   const [metrics, setMetrics] = useState({})
+  const [authFailures, setAuthFailures] = useState([])
+  const [health, setHealth] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const timerRef = useRef(null)
@@ -53,12 +67,14 @@ export default function Dashboard() {
 
   const fetchAll = useCallback(async () => {
     try {
-      const [subs, apns, pdus, promText, peersData] = await Promise.all([
+      const [subs, apns, pdus, promText, peersData, failures, healthData] = await Promise.all([
         getSubscribers().catch(() => []),
         getServingAPNs().catch(() => []),
         getPDUSessions().catch(() => []),
         getPrometheusText().catch(() => ''),
         getDiameterPeers().catch(() => []),
+        getAuthFailures().catch(() => []),
+        getHealth().catch(() => null),
       ])
       if (!mountedRef.current) return
       setSubscribers(Array.isArray(subs?.items) ? subs.items : (Array.isArray(subs) ? subs : []))
@@ -66,6 +82,8 @@ export default function Dashboard() {
       setPDUSessions(Array.isArray(pdus) ? pdus : [])
       setPeers(Array.isArray(peersData) ? peersData : [])
       setMetrics(parsePrometheusText(promText || ''))
+      setAuthFailures(Array.isArray(failures) ? failures : [])
+      setHealth(healthData ?? null)
       setError(null)
       setLoading(false)
     } catch (err) {
@@ -131,7 +149,7 @@ export default function Dashboard() {
         <StatCard title="Diameter Requests" value={totalRequests.toLocaleString()} icon={<Activity size={18} />} color="var(--accent)"  />
         <StatCard title="Cache Hits"        value={cacheHits.toLocaleString()}     icon={<Shield size={18} />}   color="var(--success)" />
         <StatCard title="API Requests"      value={apiTotal.toLocaleString()}       icon={<Database size={18} />} color="var(--warning)" />
-        <StatCard title="HSS Metric Series" value={Object.keys(metrics).filter(k => k.startsWith('hss_')).length} icon={<Cpu size={18} />} color="var(--info)" />
+        <StatCard title="Uptime" value={formatUptime(health?.uptime_seconds)} icon={<Clock size={18} />} color="var(--info)" subtitle={health?.started_at ? `since ${new Date(health.started_at).toLocaleString()}` : undefined} />
       </div>
 
       {/* Diameter by command chart */}
@@ -171,6 +189,37 @@ export default function Dashboard() {
                     <td className="mono" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{peer.origin_realm || '—'}</td>
                     <td className="mono" style={{ fontSize: '0.8rem' }}>{peer.remote_addr || '—'}</td>
                     <td className="mono" style={{ fontSize: '0.8rem', color: 'var(--accent)' }}>{peer.transport || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      {/* Recent S6a Auth Failures */}
+      {authFailures.length > 0 && (
+        <>
+          <div className="section-title" style={{ color: 'var(--error, #f85149)' }}>Recent S6a Auth Failures</div>
+          <div className="table-container mb-16">
+            <table>
+              <thead>
+                <tr>
+                  <th>IMSI</th>
+                  <th>Time</th>
+                  <th>Reason</th>
+                  <th>Peer</th>
+                </tr>
+              </thead>
+              <tbody>
+                {authFailures.map((f, i) => (
+                  <tr key={i}>
+                    <td className="mono" style={{ fontSize: '0.8rem' }}>{f.imsi || '—'}</td>
+                    <td className="mono" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                      {f.timestamp ? new Date(f.timestamp).toLocaleString() : '—'}
+                    </td>
+                    <td style={{ fontSize: '0.8rem', color: 'var(--error, #f85149)' }}>{f.reason || '—'}</td>
+                    <td className="mono" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{f.peer_addr || '—'}</td>
                   </tr>
                 ))}
               </tbody>
