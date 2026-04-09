@@ -16,11 +16,14 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"time"
 
 	"go.uber.org/zap"
 
 	"golang.org/x/net/http2"
+
+	"github.com/svinson1121/vectorcore-hss/internal/peertracker"
 )
 
 const heartBeatTimer = 60 // seconds
@@ -131,8 +134,10 @@ func (s *Server) nrfRegister(client *http.Client, profile nfProfile) error {
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
 		b, _ := io.ReadAll(resp.Body)
+		s.removeSBIPeer("NRF", s.cfg.NRFAddress)
 		return fmt.Errorf("NRF returned %d: %s", resp.StatusCode, b)
 	}
+	s.addSBIPeer("NRF", s.cfg.NRFAddress)
 	return nil
 }
 
@@ -152,10 +157,17 @@ func (s *Server) heartbeat(client *http.Client, instanceID string) {
 		req.Header.Set("Content-Type", "application/json-patch+json")
 		resp, err := client.Do(req)
 		if err != nil {
+			s.removeSBIPeer("NRF", s.cfg.NRFAddress)
 			s.log.Warn("udm: NRF heartbeat failed", zap.Error(err))
 			continue
 		}
 		resp.Body.Close()
+		if resp.StatusCode >= 400 {
+			s.removeSBIPeer("NRF", s.cfg.NRFAddress)
+			s.log.Warn("udm: NRF heartbeat returned error", zap.Int("status", resp.StatusCode))
+			continue
+		}
+		s.addSBIPeer("NRF", s.cfg.NRFAddress)
 	}
 }
 
@@ -167,15 +179,46 @@ func (s *Server) fetchJWKS(client *http.Client) {
 	}
 	resp, err := client.Do(req)
 	if err != nil {
+		s.removeSBIPeer("NRF", s.cfg.NRFAddress)
 		s.log.Warn("udm: JWKS fetch failed", zap.Error(err))
 		return
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		s.removeSBIPeer("NRF", s.cfg.NRFAddress)
+		s.log.Warn("udm: JWKS fetch returned error", zap.Int("status", resp.StatusCode))
+		return
+	}
 	raw, _ := io.ReadAll(resp.Body)
 	if len(raw) > 0 {
+		s.addSBIPeer("NRF", s.cfg.NRFAddress)
 		s.jwks.set(raw)
 		s.log.Info("udm: JWKS cached from NRF")
 	}
+}
+
+func (s *Server) addSBIPeer(name, rawURL string) {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Host == "" {
+		return
+	}
+	transport := "h2c"
+	if u.Scheme == "https" {
+		transport = "https/h2"
+	}
+	s.Peers().Add(peertracker.Peer{
+		Name:       name,
+		RemoteAddr: u.Host,
+		Transport:  transport,
+	})
+}
+
+func (s *Server) removeSBIPeer(name, rawURL string) {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Host == "" {
+		return
+	}
+	s.Peers().Remove(u.Host)
 }
 
 // nrfClient returns an HTTP/2 client appropriate for the NRF transport.

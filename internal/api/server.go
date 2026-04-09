@@ -46,6 +46,18 @@ type PeerLister interface {
 	List() []ConnectedPeer
 }
 
+// ServicePeer describes a connected non-Diameter peer/client.
+type ServicePeer struct {
+	Name       string `json:"name" doc:"Peer name or identifier when known"`
+	RemoteAddr string `json:"remote_addr" doc:"Remote address (host:port)"`
+	Transport  string `json:"transport" doc:"Transport or protocol in use"`
+}
+
+// ServicePeerLister returns a snapshot of connected peers for a service.
+type ServicePeerLister interface {
+	List() []ServicePeer
+}
+
 // AuthFailureLister returns a snapshot of recent S6a AIR authentication failures.
 type AuthFailureLister interface {
 	RecentAuthFailures() []AuthFailure
@@ -72,6 +84,8 @@ type Server struct {
 	tac          *taccache.Cache   // nil when TAC DB is disabled in config
 	geored       GeoredManager     // nil when GeoRed is disabled
 	peers        PeerLister        // nil when Diameter is not wired
+	gsupPeers    ServicePeerLister // nil when GSUP is not wired
+	sbiPeers     ServicePeerLister // nil when SBI is not wired
 	authFailures AuthFailureLister // nil when Diameter is not wired
 }
 
@@ -89,6 +103,18 @@ func New(db *gorm.DB, cfg config.APIConfig, log *zap.Logger) *Server {
 // WithPeers attaches a Diameter peer lister so the API can expose connected peers.
 func (s *Server) WithPeers(p PeerLister) *Server {
 	s.peers = p
+	return s
+}
+
+// WithGSUPPeers attaches a GSUP peer lister.
+func (s *Server) WithGSUPPeers(p ServicePeerLister) *Server {
+	s.gsupPeers = p
+	return s
+}
+
+// WithSBIPeers attaches an SBI peer lister.
+func (s *Server) WithSBIPeers(p ServicePeerLister) *Server {
+	s.sbiPeers = p
 	return s
 }
 
@@ -184,6 +210,12 @@ func (s *Server) registerRoutes(api huma.API) {
 	}
 	if s.peers != nil {
 		registerDiameterPeersRoutes(s, api)
+	}
+	if s.gsupPeers != nil {
+		registerGSUPPeersRoutes(s, api)
+	}
+	if s.sbiPeers != nil {
+		registerSBIPeersRoutes(s, api)
 	}
 	if s.authFailures != nil {
 		registerAuthFailureRoutes(s, api)

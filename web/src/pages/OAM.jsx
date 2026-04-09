@@ -4,7 +4,7 @@ import { useSort } from '../hooks/useSort.js'
 import Spinner from '../components/Spinner.jsx'
 import Modal from '../components/Modal.jsx'
 import { usePoller } from '../hooks/usePoller.js'
-import { getVersion, getHealth, getDiameterPeers, getSubscribers, sendCLR, getEmergencySessions, getOperationLogs, rollbackOperation } from '../api/client.js'
+import { getVersion, getHealth, getDiameterPeers, getGSUPPeers, getSBIPeers, getSubscribers, sendCLR, getEmergencySessions, getOperationLogs, rollbackOperation } from '../api/client.js'
 import { useToast } from '../components/Toast.jsx'
 
 function formatUptime(seconds) {
@@ -197,6 +197,40 @@ function OperationLogTable({ logs, loading, onRefresh, onRollback, onViewChanges
   )
 }
 
+function PeerSection({ title, peers, onRefresh, emptyText, columns }) {
+  return (
+    <div className="oam-section">
+      <div className="flex items-center gap-8 mb-16">
+        <Wifi size={16} style={{ color: 'var(--accent)' }} />
+        <h3 className="card-title">{title}</h3>
+        <button className="btn-icon btn-sm" onClick={onRefresh} title={`Refresh ${title}`}><RefreshCw size={12} /></button>
+      </div>
+      {peers.length === 0 ? (
+        <div className="text-muted text-sm">{emptyText}</div>
+      ) : (
+        <div className="table-container">
+          <table>
+            <thead>
+              <tr>{columns.map(col => <th key={col.key}>{col.label}</th>)}</tr>
+            </thead>
+            <tbody>
+              {peers.map((peer, i) => (
+                <tr key={`${peer.remote_addr || peer.origin_host || peer.name || 'peer'}-${i}`}>
+                  {columns.map(col => (
+                    <td key={col.key} className="mono" style={{ fontSize: '0.8rem', color: col.muted ? 'var(--text-muted)' : col.accent ? 'var(--accent)' : undefined }}>
+                      {peer[col.key] || '—'}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function OAM() {
   const toast = useToast()
   const fetchFn = useCallback(getVersion, [])
@@ -205,6 +239,8 @@ export default function OAM() {
   const [health, setHealth] = useState(null)
   const [healthError, setHealthError] = useState(null)
   const [peers, setPeers] = useState([])
+  const [gsupPeers, setGSUPPeers] = useState([])
+  const [sbiPeers, setSBIPeers] = useState([])
   const [subscribers, setSubscribers] = useState([])
   const [emergencySessions, setEmergencySessions] = useState([])
   const [operationLogs, setOperationLogs] = useState([])
@@ -246,6 +282,20 @@ export default function OAM() {
     } catch {}
   }, [])
 
+  const fetchGSUPPeers = useCallback(async () => {
+    try {
+      const p = await getGSUPPeers()
+      if (mountedRef.current) setGSUPPeers(Array.isArray(p) ? p : [])
+    } catch {}
+  }, [])
+
+  const fetchSBIPeers = useCallback(async () => {
+    try {
+      const p = await getSBIPeers()
+      if (mountedRef.current) setSBIPeers(Array.isArray(p) ? p : [])
+    } catch {}
+  }, [])
+
   const fetchEmergency = useCallback(async () => {
     try {
       const e = await getEmergencySessions()
@@ -255,11 +305,11 @@ export default function OAM() {
 
   useEffect(() => {
     mountedRef.current = true
-    fetchHealth(); fetchPeers(); fetchEmergency()
+    fetchHealth(); fetchPeers(); fetchGSUPPeers(); fetchSBIPeers(); fetchEmergency()
     getSubscribers().then(d => { if (mountedRef.current) setSubscribers(Array.isArray(d?.items) ? d.items : []) }).catch(() => {})
-    healthTimerRef.current = setInterval(() => { fetchHealth(); fetchPeers(); fetchEmergency() }, 5000)
+    healthTimerRef.current = setInterval(() => { fetchHealth(); fetchPeers(); fetchGSUPPeers(); fetchSBIPeers(); fetchEmergency() }, 5000)
     return () => { mountedRef.current = false; clearInterval(healthTimerRef.current) }
-  }, [fetchHealth, fetchPeers, fetchEmergency])
+  }, [fetchHealth, fetchPeers, fetchGSUPPeers, fetchSBIPeers, fetchEmergency])
 
   async function fetchLogs() {
     setLogsLoading(true)
@@ -354,7 +404,7 @@ export default function OAM() {
           <div className="page-title">OAM</div>
           <div className="page-subtitle">Operations, administration, and maintenance</div>
         </div>
-        <button className="btn btn-ghost" onClick={() => { refresh(); fetchHealth(); fetchPeers() }}>
+        <button className="btn btn-ghost" onClick={() => { refresh(); fetchHealth(); fetchPeers(); fetchGSUPPeers(); fetchSBIPeers() }}>
           <RefreshCw size={14} /> Refresh
         </button>
       </div>
@@ -396,33 +446,42 @@ export default function OAM() {
         </div>
       </div>
 
-      {/* Connected Diameter Peers */}
-      <div className="oam-section">
-        <div className="flex items-center gap-8 mb-16">
-          <Wifi size={16} style={{ color: 'var(--accent)' }} />
-          <h3 className="card-title">Connected Diameter Peers</h3>
-          <button className="btn-icon btn-sm" onClick={fetchPeers} title="Refresh peers"><RefreshCw size={12} /></button>
-        </div>
-        {peers.length === 0 ? (
-          <div className="text-muted text-sm">No Diameter peers currently connected.</div>
-        ) : (
-          <div className="table-container">
-            <table>
-              <thead><tr><th>Origin Host</th><th>Origin Realm</th><th>Remote Address</th><th>Transport</th></tr></thead>
-              <tbody>
-                {peers.map((peer, i) => (
-                  <tr key={i}>
-                    <td className="mono" style={{ fontSize: '0.8rem' }}>{peer.origin_host || '—'}</td>
-                    <td className="mono" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{peer.origin_realm || '—'}</td>
-                    <td className="mono" style={{ fontSize: '0.8rem' }}>{peer.remote_addr || '—'}</td>
-                    <td className="mono" style={{ fontSize: '0.78rem', color: 'var(--accent)' }}>{peer.transport || '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+      <PeerSection
+        title="Connected Diameter Peers"
+        peers={peers}
+        onRefresh={fetchPeers}
+        emptyText="No Diameter peers currently connected."
+        columns={[
+          { key: 'origin_host', label: 'Origin Host' },
+          { key: 'origin_realm', label: 'Origin Realm', muted: true },
+          { key: 'remote_addr', label: 'Remote Address' },
+          { key: 'transport', label: 'Transport', accent: true },
+        ]}
+      />
+
+      <PeerSection
+        title="Connected GSUP Peers"
+        peers={gsupPeers}
+        onRefresh={fetchGSUPPeers}
+        emptyText="No GSUP peers currently connected."
+        columns={[
+          { key: 'name', label: 'Peer Name' },
+          { key: 'remote_addr', label: 'Remote Address' },
+          { key: 'transport', label: 'Transport', accent: true },
+        ]}
+      />
+
+      <PeerSection
+        title="Connected SBI Peers"
+        peers={sbiPeers}
+        onRefresh={fetchSBIPeers}
+        emptyText="No SBI peers currently connected."
+        columns={[
+          { key: 'name', label: 'Peer Address' },
+          { key: 'remote_addr', label: 'Remote Address' },
+          { key: 'transport', label: 'Transport', accent: true },
+        ]}
+      />
 
       {/* Send Cancel Location Request */}
       <div className="oam-section">

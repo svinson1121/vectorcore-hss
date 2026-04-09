@@ -18,6 +18,7 @@ import (
 
 	"github.com/svinson1121/vectorcore-hss/internal/config"
 	"github.com/svinson1121/vectorcore-hss/internal/geored"
+	"github.com/svinson1121/vectorcore-hss/internal/peertracker"
 	"github.com/svinson1121/vectorcore-hss/internal/repository"
 )
 
@@ -27,17 +28,26 @@ type Server struct {
 	store repository.Repository
 	log   *zap.Logger
 	pub   geored.TypedPublisher
+	pt    *peertracker.Tracker
 }
 
 // New creates a new GSUP server.
 func New(cfg config.GSUPConfig, _ config.HSSConfig, store repository.Repository, log *zap.Logger) *Server {
-	return &Server{cfg: cfg, store: store, log: log, pub: geored.NoopTypedPublisher{}}
+	return &Server{cfg: cfg, store: store, log: log, pub: geored.NoopTypedPublisher{}, pt: peertracker.New()}
 }
 
 // WithGeored attaches a GeoRed publisher to the GSUP server.
 func (s *Server) WithGeored(pub geored.TypedPublisher) *Server {
 	s.pub = pub
 	return s
+}
+
+// Peers returns the live GSUP peer tracker.
+func (s *Server) Peers() *peertracker.Tracker {
+	if s.pt == nil {
+		s.pt = peertracker.New()
+	}
+	return s.pt
 }
 
 // Start listens for inbound IPA/GSUP connections.
@@ -64,8 +74,10 @@ func (s *Server) Start() error {
 func (s *Server) handleConn(conn net.Conn) {
 	remote := conn.RemoteAddr().String()
 	s.log.Info("gsup: peer connected", zap.String("peer", remote))
+	s.Peers().Add(peertracker.Peer{Name: remote, RemoteAddr: remote, Transport: "tcp"})
 	defer func() {
 		conn.Close()
+		s.Peers().Remove(remote)
 		s.log.Info("gsup: peer disconnected", zap.String("peer", remote))
 	}()
 
@@ -97,7 +109,7 @@ func (s *Server) handleConn(conn net.Conn) {
 
 		switch msg.proto {
 		case ipaProtoCCM:
-			peerName = s.handleCCM(conn, peerName, msg)
+			peerName = s.handleCCM(conn, remote, peerName, msg)
 
 		case ipaProtoOSMO, ipaProtoOSMOLegacy:
 			peerProto = msg.proto // echo the peer's own proto byte in all responses
@@ -136,7 +148,7 @@ func (s *Server) handleConn(conn net.Conn) {
 
 // handleCCM processes Common Control Messages (PING, ID_RESP).
 // Returns the (possibly updated) peer name.
-func (s *Server) handleCCM(conn net.Conn, peerName string, msg *ipaMsg) string {
+func (s *Server) handleCCM(conn net.Conn, remoteAddr, peerName string, msg *ipaMsg) string {
 	if len(msg.payload) == 0 {
 		return peerName
 	}
@@ -152,6 +164,7 @@ func (s *Server) handleCCM(conn net.Conn, peerName string, msg *ipaMsg) string {
 				zap.String("addr", peerName),
 				zap.String("name", name),
 			)
+			s.Peers().Rename(remoteAddr, name)
 			peerName = name
 		}
 		// ID_ACK completes the IPA CCM handshake; OsmoMSC's GSUP client

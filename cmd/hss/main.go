@@ -25,6 +25,7 @@ import (
 	"github.com/svinson1121/vectorcore-hss/internal/gsup"
 	"github.com/svinson1121/vectorcore-hss/internal/metrics"
 	"github.com/svinson1121/vectorcore-hss/internal/models"
+	"github.com/svinson1121/vectorcore-hss/internal/peertracker"
 	pgstore "github.com/svinson1121/vectorcore-hss/internal/repository/postgres"
 	"github.com/svinson1121/vectorcore-hss/internal/taccache"
 	"github.com/svinson1121/vectorcore-hss/internal/udm"
@@ -34,6 +35,7 @@ import (
 
 // peerListAdapter adapts diameter.PeerTracker to the api.PeerLister interface.
 type peerListAdapter struct{ pt *diameter.PeerTracker }
+type servicePeerListAdapter struct{ pt *peertracker.Tracker }
 
 // authFailureAdapter adapts s6a.Handlers to the api.AuthFailureLister interface.
 type authFailureAdapter struct{ srv *diameter.Server }
@@ -65,6 +67,19 @@ func (a *peerListAdapter) List() []api.ConnectedPeer {
 			OriginRealm: p.OriginRealm,
 			RemoteAddr:  p.RemoteAddr,
 			Transport:   p.Transport,
+		}
+	}
+	return out
+}
+
+func (a *servicePeerListAdapter) List() []api.ServicePeer {
+	raw := a.pt.List()
+	out := make([]api.ServicePeer, len(raw))
+	for i, p := range raw {
+		out[i] = api.ServicePeer{
+			Name:       p.Name,
+			RemoteAddr: p.RemoteAddr,
+			Transport:  p.Transport,
 		}
 	}
 	return out
@@ -196,8 +211,27 @@ func main() {
 	errCh := make(chan error, 2)
 	go func() { errCh <- srv.Start() }()
 
+	var gsupSrv *gsup.Server
+	if cfg.GSUP.Enabled {
+		gsupSrv = gsup.New(cfg.GSUP, cfg.HSS, store, log)
+		if georedMgr != nil {
+			gsupSrv.WithGeored(georedMgr)
+		}
+	}
+
+	var udmSrv *udm.Server
+	if cfg.UDM.Enabled {
+		udmSrv = udm.New(cfg.UDM, store, log)
+	}
+
 	if cfg.API.Enabled {
 		apiSrv := api.New(db, cfg.API, log).WithCLR(srv).WithCache(store).WithPeers(&peerListAdapter{srv.Peers()}).WithAuthFailures(&authFailureAdapter{srv})
+		if gsupSrv != nil {
+			apiSrv.WithGSUPPeers(&servicePeerListAdapter{gsupSrv.Peers()})
+		}
+		if udmSrv != nil {
+			apiSrv.WithSBIPeers(&servicePeerListAdapter{udmSrv.Peers()})
+		}
 		if tacCache != nil {
 			apiSrv.WithTAC(tacCache)
 		}
@@ -208,15 +242,10 @@ func main() {
 	}
 
 	if cfg.GSUP.Enabled {
-		gsupSrv := gsup.New(cfg.GSUP, cfg.HSS, store, log)
-		if georedMgr != nil {
-			gsupSrv.WithGeored(georedMgr)
-		}
 		go func() { errCh <- gsupSrv.Start() }()
 	}
 
 	if cfg.UDM.Enabled {
-		udmSrv := udm.New(cfg.UDM, store, log)
 		go func() { errCh <- udmSrv.Start() }()
 	}
 

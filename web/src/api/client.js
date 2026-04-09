@@ -119,6 +119,8 @@ export const getPDUSessions = () => request('GET', '/oam/pdu_session')
 
 // Diameter Peers
 export const getDiameterPeers = () => request('GET', '/oam/diameter/peers').then(r => r?.peers ?? r)
+export const getGSUPPeers = () => request('GET', '/oam/gsup/peers').then(r => r?.peers ?? r)
+export const getSBIPeers = () => request('GET', '/oam/sbi/peers').then(r => r?.peers ?? r)
 
 // Auth Failures
 export const getAuthFailures = () => request('GET', '/oam/diameter/auth_failures').then(r => r?.failures ?? [])

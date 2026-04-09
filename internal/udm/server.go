@@ -28,6 +28,7 @@ import (
 	"golang.org/x/net/http2/h2c"
 
 	"github.com/svinson1121/vectorcore-hss/internal/config"
+	"github.com/svinson1121/vectorcore-hss/internal/peertracker"
 	"github.com/svinson1121/vectorcore-hss/internal/repository"
 )
 
@@ -37,6 +38,7 @@ type Server struct {
 	store repository.Repository
 	log   *zap.Logger
 	jwks  *jwksStore
+	pt    *peertracker.Tracker
 }
 
 // New creates a new UDM server.
@@ -52,13 +54,22 @@ func New(cfg config.UDMConfig, store repository.Repository, log *zap.Logger) *Se
 		store: store,
 		log:   log,
 		jwks:  &jwksStore{},
+		pt:    peertracker.New(),
 	}
+}
+
+// Peers returns the live SBI peer tracker.
+func (s *Server) Peers() *peertracker.Tracker {
+	if s.pt == nil {
+		s.pt = peertracker.New()
+	}
+	return s.pt
 }
 
 // newUUID returns a random RFC 4122 version 4 UUID string.
 func newUUID() string {
 	var b [16]byte
-	rand.Read(b[:]) //nolint:errcheck — crypto/rand.Read never returns an error on supported platforms
+	rand.Read(b[:])             //nolint:errcheck — crypto/rand.Read never returns an error on supported platforms
 	b[6] = (b[6] & 0x0f) | 0x40 // version 4
 	b[8] = (b[8] & 0x3f) | 0x80 // variant bits
 	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
@@ -88,6 +99,7 @@ func (s *Server) Start() error {
 				Certificates: []tls.Certificate{cert},
 				NextProtos:   []string{"h2"},
 			},
+			ConnState: s.connState("https/h2"),
 		}
 		http2.ConfigureServer(srv, nil)
 		return srv.ListenAndServeTLS("", "")
@@ -95,10 +107,23 @@ func (s *Server) Start() error {
 
 	// Cleartext HTTP/2 (h2c) — the normal mode for Open5GS lab deployments.
 	srv := &http.Server{
-		Addr:    addr,
-		Handler: h2c.NewHandler(r, &http2.Server{}),
+		Addr:      addr,
+		Handler:   h2c.NewHandler(r, &http2.Server{}),
+		ConnState: s.connState("h2c"),
 	}
 	return srv.ListenAndServe()
+}
+
+func (s *Server) connState(transport string) func(net.Conn, http.ConnState) {
+	return func(conn net.Conn, state http.ConnState) {
+		remote := conn.RemoteAddr().String()
+		switch state {
+		case http.StateNew, http.StateActive, http.StateIdle:
+			s.Peers().Add(peertracker.Peer{Name: remote, RemoteAddr: remote, Transport: transport})
+		case http.StateHijacked, http.StateClosed:
+			s.Peers().Remove(remote)
+		}
+	}
 }
 
 // mountRoutes registers all Nudm endpoints on the chi router.
