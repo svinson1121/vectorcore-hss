@@ -10,7 +10,7 @@ networks, written in Go.
 - **Multi-interface Diameter server** - S6a, S6c, S13, Cx, Sh, Gx, Rx, SWx, SLh, Zh on a single TCP/SCTP listener
 - **GSUP/HLR** - Osmocom IPA+GSUP server (port 4222) for OsmoMSC/OsmoSGSN; handles SendAuthInfo, UpdateLocation, PurgeMS; generates 2G triplets and 3G quintuplets for CSFB voice and SGs SMS
 - **SMS routing (S6c)** - Send-Routing-Info-for-SM (SRI-SM) resolves MSISDN to serving MME for MT SMS delivery via SGd/T4; Report-SM-Delivery-Status (RSDS) stores Message Waiting Data on delivery failure; Alert-Service-Centre (ALSC) is HSS-initiated and fires automatically when the subscriber re-attaches; SMS-in-MME registration state (MME-Number-for-MT-SMS, MME-Registered-for-SMS) tracked per subscriber via ULR
-- **5GC UDM, UDR, and PCF  N13,N10,N8,N15,N7 and SCP Proxy support
+- **5GC UDM, UDR, and PCF**  N13,N10,N8,N15,N7 and SCP Proxy support
 - **Milenage authentication** - EUTRAN vector generation (AIR), EAP-AKA vector generation (SWx MAR), GBA vector generation (Zh MAR); custom c/r constant profiles per-AUC
 - **Atomic SQN management** - SELECT FOR UPDATE prevents SQN races during concurrent AIR from multiple MMEs
 - **In-memory read cache** - 60-second TTL cache on AUC and Subscriber hot paths
