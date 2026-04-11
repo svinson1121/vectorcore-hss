@@ -1,7 +1,6 @@
 hss:
   OriginHost: hss01.epc.mnc435.mcc311.3gppnetwork.org
   OriginRealm: epc.mnc435.mcc311.3gppnetwork.org
-  ProductName: VectorCore HSS
   BindAddress: "::"
   BindPort: 3868
   EnableSCTP: yes        # set true to also listen on SCTP (requires kernel sctp module)
@@ -71,41 +70,64 @@ gsup:
   bind_address: "::"
   bind_port: 4222
 
-udm:
-  # 5G UDR/UDM listener  implements the 3GPP Nudm SBI interfaces used by
-  # Open5GS AUSF, AMF, and SMF.  VectorCore acts as both UDM (application
-  # logic) and UDR (data repository) no separate UDR process; goes directly
-  # to the same PostgreSQL database as the 4G HSS.
-  #
-  # Interfaces served:
-  #   nudm-ueau  (port 7777)  5G-AKA auth vectors for AUSF
-  #   nudm-sdm   (port 7777)  subscription data for AMF/SMF
-  #   nudm-uecm  (port 7777)  UE context registrations for AMF/SMF
-  #
-  # Transport: cleartext HTTP/2 (h2c) when no TLS certs are set  the normal
-  # mode for Open5GS lab deployments.
-  enabled: true
-  bind_address: "::"
-  bind_port: 7777
+5gc:
+  # Shared 5G SBI listener for both UDM/UDR and PCF routes.
+  sbi:
+    bind_address: "::"
+    bind_port: 7777
 
-  # nrf_address is the base URL of the Open5GS NRF.
-  # Leave empty to skip NRF registration (standalone / dev mode).
-  # Example: nrf_address: "http://127.0.0.5:7777"
-  nrf_address: ""
+    # TLS leave blank for cleartext HTTP/2 (h2c).
+    # tls_cert_file: /etc/hss/tls/cert.pem
+    # tls_key_file:  /etc/hss/tls/key.pem
 
-  # nf_instance_id is a stable UUID for this UDM instance used in NRF
-  # registration.  Leave blank to auto-generate a UUID on each startup.
-  nf_instance_id: ""
+    # OAuth2 token validation on inbound Nudm/Npcf requests.
+    oauth2_enabled: false
+    oauth2_bypass: true
 
-  # TLS leave blank for cleartext HTTP/2 (h2c).
-  # Uncomment for production TLS:
-  # tls_cert_file: /etc/hss/tls/cert.pem
-  # tls_key_file:  /etc/hss/tls/key.pem
+    # Outbound SBI client routing.
+    client:
+      mode: direct
+      scp_address: ""
 
-  # OAuth2 token validation on inbound Nudm requests.
-  # Set oauth2_enabled: true and oauth2_bypass: false for production.
-  oauth2_enabled: false
-  oauth2_bypass: true     # skip token check even when oauth2_enabled (lab mode)
+  udm:
+    enabled: false
+
+    # mcc / mnc inherit from hss.MCC / hss.MNC if not set.
+    # mcc: "311"
+    # mnc: "435"
+    nrf_address: ""
+    nf_instance_id: ""
+
+    # Home Network private keys for encrypted SUCI decryption.
+    suci_decryption_keys: []
+    # suci_decryption_keys:
+    #   - key_id: 1
+    #     scheme: 1   # Profile A  X25519 (curve25519)
+    #     key_file: /opt/vectorcore/etc/hnet/curve25519-1.key
+    #   - key_id: 2
+    #     scheme: 2   # Profile B  P-256 (secp256r1)
+    #     key_file: /opt/vectorcore/etc/hnet/secp256r1-2.key
+    #   - key_id: 3
+    #     scheme: 1   # Profile A  X25519
+    #     key_file: /opt/vectorcore/etc/hnet/curve25519-3.key
+    #   - key_id: 4
+    #     scheme: 2   # Profile B  P-256
+    #     key_file: /opt/vectorcore/etc/hnet/secp256r1-4.key
+    #   - key_id: 5
+    #     scheme: 1   # Profile A  X25519
+    #     key_file: /opt/vectorcore/etc/hnet/curve25519-5.key
+    #   - key_id: 6
+    #     scheme: 2   # Profile B  P-256
+    #     key_file: /opt/vectorcore/etc/hnet/secp256r1-6.key
+
+  pcf:
+    enabled: false
+
+    # mcc / mnc inherit from hss.MCC / hss.MNC if not set.
+    # mcc: "311"
+    # mnc: "435"
+    nrf_address: ""
+    nf_instance_id: ""
 
 api:
   enabled: true

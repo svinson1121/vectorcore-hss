@@ -1,6 +1,4 @@
-package udm
-
-// nrf.go — NRF client: registration, heartbeat, and JWKS fetch.
+package pcf
 
 import (
 	"context"
@@ -12,36 +10,32 @@ import (
 	"github.com/svinson1121/vectorcore-hss/internal/sbi"
 )
 
-// startNRFRegistration registers the UDM with the NRF and starts the heartbeat.
-// Runs in a separate goroutine; retries with backoff if the NRF is unreachable.
 func (s *Server) startNRFRegistration() {
 	if s.cfg.NRFAddress == "" {
-		s.log.Info("udm: NRF address not configured, skipping registration")
+		s.log.Info("pcf: NRF address not configured, skipping registration")
 		return
 	}
 
 	scheme := sbi.SchemeFromTLS(s.cfg.TLSCertFile)
 	ourIP := sbi.ResolveOurIP()
 	services := []sbi.NFService{
-		sbi.MakeService("nudm-ueau", scheme, ourIP, s.cfg.BindPort, []string{"v1", "v2"}),
-		sbi.MakeService("nudm-sdm", scheme, ourIP, s.cfg.BindPort, []string{"v1", "v2"}),
-		sbi.MakeService("nudm-uecm", scheme, ourIP, s.cfg.BindPort, []string{"v1"}),
-		sbi.MakeService("nudr-dr", scheme, ourIP, s.cfg.BindPort, []string{"v1", "v2"}),
+		sbi.MakeService("npcf-smpolicycontrol", scheme, ourIP, s.cfg.BindPort, []string{"v1"}),
+		sbi.MakeService("npcf-am-policy-control", scheme, ourIP, s.cfg.BindPort, []string{"v1"}),
 	}
 
 	profile := sbi.NFProfile{
 		NFInstanceID:   s.cfg.NFInstanceID,
-		NFInstanceName: "vectorcore-udm-udr",
-		NFType:         "UDM",
+		NFInstanceName: "vectorcore-pcf",
+		NFType:         "PCF",
 		NFStatus:       "REGISTERED",
 		HeartBeatTimer: sbi.HeartbeatTimer,
 		PLMNList:       sbi.PLMNListFromConfig(s.cfg.MCC, s.cfg.MNC),
 		IPv4Addresses:  []string{ourIP},
-		AllowedNFTypes: []string{"AUSF", "AMF", "SMF", "PCF", "NEF"},
+		AllowedNFTypes: []string{"AMF", "SMF", "AF", "UDM", "NRF"},
 		NFServices:     services,
 	}
 
-	registrar := sbi.NewNRFRegistrar("udm", s.cfg.NRFAddress, s.cfg.NFInstanceID, profile, s.log, s.Peers(), s.cfg.SBIClient)
+	registrar := sbi.NewNRFRegistrar("pcf", s.cfg.NRFAddress, s.cfg.NFInstanceID, profile, s.log, s.Peers(), s.cfg.SBIClient)
 	registrar.Start()
 	go s.fetchJWKS(registrar.Client())
 }
@@ -49,7 +43,7 @@ func (s *Server) startNRFRegistration() {
 func (s *Server) fetchJWKS(client *sbi.Client) {
 	url := fmt.Sprintf("%s/nnrf-nfm/v1/nf-instances?nf-type=NRF", s.cfg.NRFAddress)
 	req, err := client.NewRequestWithOptions(context.Background(), "GET", url, nil, sbi.RequestOptions{
-		RequesterNFType:       "UDM",
+		RequesterNFType:       "PCF",
 		RequesterNFInstanceID: s.cfg.NFInstanceID,
 		TargetNFType:          "NRF",
 		TargetServiceName:     "nnrf-nfm",
@@ -57,20 +51,20 @@ func (s *Server) fetchJWKS(client *sbi.Client) {
 	if err != nil {
 		return
 	}
-	req.Header.Set("User-Agent", sbi.FormatRequesterUserAgent("UDM", s.cfg.NFInstanceID))
+	req.Header.Set("User-Agent", sbi.FormatRequesterUserAgent("PCF", s.cfg.NFInstanceID))
 	resp, err := client.Do(req)
 	if err != nil {
-		s.log.Warn("udm: JWKS fetch failed", zap.Error(err))
+		s.log.Warn("pcf: JWKS fetch failed", zap.Error(err))
 		return
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
-		s.log.Warn("udm: JWKS fetch returned error", zap.Int("status", resp.StatusCode))
+		s.log.Warn("pcf: JWKS fetch returned error", zap.Int("status", resp.StatusCode))
 		return
 	}
 	raw, _ := io.ReadAll(resp.Body)
 	if len(raw) > 0 {
 		s.jwks.Set(raw)
-		s.log.Info("udm: JWKS cached from NRF")
+		s.log.Info("pcf: JWKS cached from NRF")
 	}
 }

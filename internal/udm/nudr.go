@@ -20,7 +20,6 @@ package udm
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"time"
 
@@ -123,7 +122,7 @@ func (s *Server) handleUDRSMPolicyData(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Parse optional filter params from PCF.
-	filterDNN := r.URL.Query().Get("dnn")
+	filterDNN := normalizeDNN(r.URL.Query().Get("dnn"))
 	filterSST := 0
 	if v := r.URL.Query().Get("snssai"); v != "" {
 		var sn snssai
@@ -150,7 +149,7 @@ func (s *Server) handleUDRSMPolicyData(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				continue
 			}
-			if filterDNN != "" && apn.APN != filterDNN {
+			if filterDNN != "" && normalizeDNN(apn.APN) != filterDNN {
 				continue
 			}
 			offline := true
@@ -175,8 +174,8 @@ func (s *Server) handleUDRSMPolicyData(w http.ResponseWriter, r *http.Request) {
 							FiveQI: fiveQI,
 							ARP: arp{
 								PriorityLevel: apn.ARPPriority,
-								PreemptCap:    preemptFlag(apn.ARPPreemptionCapability),
-								PreemptVuln:   preemptFlag(apn.ARPPreemptionVulnerability),
+								PreemptCap:    preemptCapFlag(apn.ARPPreemptionCapability),
+								PreemptVuln:   preemptVulnFlag(apn.ARPPreemptionVulnerability),
 							},
 						},
 					},
@@ -265,9 +264,16 @@ func resolveUEID(r *http.Request) (string, error) {
 	return ParseSUPI(chi.URLParam(r, "ueId"))
 }
 
-func preemptFlag(b *bool) string {
+func preemptCapFlag(b *bool) string {
 	if b != nil && *b {
-		return fmt.Sprintf("MAY_PREEMPT")
+		return "MAY_PREEMPT"
 	}
 	return "NOT_PREEMPT"
+}
+
+func preemptVulnFlag(b *bool) string {
+	if b != nil && *b {
+		return "PREEMPTABLE"
+	}
+	return "NOT_PREEMPTABLE"
 }

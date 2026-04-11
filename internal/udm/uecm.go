@@ -21,15 +21,16 @@ import (
 
 	"github.com/svinson1121/vectorcore-hss/internal/models"
 	"github.com/svinson1121/vectorcore-hss/internal/repository"
+	"github.com/svinson1121/vectorcore-hss/internal/sbi"
 )
 
 // ── AMF 3GPP access registration ─────────────────────────────────────────────
 
 type amfRegistration struct {
-	AMFInstanceID string   `json:"amfInstanceId"`
-	GUAMI         *guami   `json:"guami,omitempty"`
-	RATType       string   `json:"ratType,omitempty"`
-	IMSVoPS3GPP   bool     `json:"imsVoPs3gpp,omitempty"`
+	AMFInstanceID    string `json:"amfInstanceId"`
+	GUAMI            *guami `json:"guami,omitempty"`
+	RATType          string `json:"ratType,omitempty"`
+	IMSVoPS3GPP      bool   `json:"imsVoPs3gpp,omitempty"`
 	DeregCallbackURI string `json:"deregCallbackUri,omitempty"`
 }
 
@@ -44,6 +45,7 @@ type plmnID struct {
 }
 
 func (s *Server) handleAMFRegistrationPut(w http.ResponseWriter, r *http.Request) {
+	metaFields := sbi.RequestMetaFromContext(r.Context()).LogFields()
 	imsi, err := resolveIMSI(r)
 	if err != nil {
 		jsonError(w, http.StatusBadRequest, "invalid_supi")
@@ -74,12 +76,12 @@ func (s *Server) handleAMFRegistrationPut(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if err != nil {
-		s.log.Error("udm: amf reg db error", zap.String("imsi", imsi), zap.Error(err))
+		s.log.Error("udm: amf reg db error", append(metaFields, zap.String("imsi", imsi), zap.Error(err))...)
 		jsonError(w, http.StatusInternalServerError, "db_error")
 		return
 	}
 
-	s.log.Info("udm: AMF registered", zap.String("imsi", imsi), zap.String("amf", amfAddr))
+	s.log.Info("udm: AMF registered", append(metaFields, zap.String("imsi", imsi), zap.String("amf", amfAddr))...)
 	w.WriteHeader(http.StatusCreated)
 }
 
@@ -89,6 +91,7 @@ func (s *Server) handleAMFRegistrationPatch(w http.ResponseWriter, r *http.Reque
 }
 
 func (s *Server) handleAMFRegistrationDelete(w http.ResponseWriter, r *http.Request) {
+	metaFields := sbi.RequestMetaFromContext(r.Context()).LogFields()
 	imsi, err := resolveIMSI(r)
 	if err != nil {
 		jsonError(w, http.StatusBadRequest, "invalid_supi")
@@ -104,14 +107,14 @@ func (s *Server) handleAMFRegistrationDelete(w http.ResponseWriter, r *http.Requ
 		Timestamp:     nil,
 	})
 
-	s.log.Info("udm: AMF deregistered", zap.String("imsi", imsi))
+	s.log.Info("udm: AMF deregistered", append(metaFields, zap.String("imsi", imsi))...)
 	w.WriteHeader(http.StatusNoContent)
 }
 
 // ── GET /registrations ───────────────────────────────────────────────────────
 
 type registrations struct {
-	AMF3GPPAccess *amfRegistrationResp    `json:"amf3GppAccessRegistration,omitempty"`
+	AMF3GPPAccess *amfRegistrationResp     `json:"amf3GppAccessRegistration,omitempty"`
 	PDUSessions   []pduSessionRegistration `json:"smfRegistrations,omitempty"`
 }
 
@@ -167,14 +170,15 @@ func (s *Server) handleGetRegistrations(w http.ResponseWriter, r *http.Request) 
 // ── SMF PDU session registration ─────────────────────────────────────────────
 
 type smfPDURegistration struct {
-	SMFInstanceID string `json:"smfInstanceId"`
-	SMFSetID      string `json:"smfSetId,omitempty"`
-	DNN           string `json:"dnn,omitempty"`
-	SingleNSSAI   string `json:"singleNssai,omitempty"`
-	PLMNId        string `json:"plmnId,omitempty"`
+	SMFInstanceID string          `json:"smfInstanceId"`
+	SMFSetID      string          `json:"smfSetId,omitempty"`
+	DNN           string          `json:"dnn,omitempty"`
+	SingleNSSAI   json.RawMessage `json:"singleNssai,omitempty"`
+	PLMNId        json.RawMessage `json:"plmnId,omitempty"`
 }
 
 func (s *Server) handleSMFRegistrationPut(w http.ResponseWriter, r *http.Request) {
+	metaFields := sbi.RequestMetaFromContext(r.Context()).LogFields()
 	imsi, err := resolveIMSI(r)
 	if err != nil {
 		jsonError(w, http.StatusBadRequest, "invalid_supi")
@@ -202,24 +206,25 @@ func (s *Server) handleSMFRegistrationPut(w http.ResponseWriter, r *http.Request
 		SMFInstanceID: reg.SMFInstanceID,
 		SMFSetID:      reg.SMFSetID,
 		DNN:           reg.DNN,
-		SNSSAI:        reg.SingleNSSAI,
-		PLMNIDStr:     reg.PLMNId,
+		SNSSAI:        canonicalJSON(reg.SingleNSSAI),
+		PLMNIDStr:     canonicalPLMN(reg.PLMNId),
 	}
 	if err := s.store.UpsertServingPDUSession(ctx, rec); err != nil {
-		s.log.Error("udm: smf reg db error", zap.String("imsi", imsi), zap.Error(err))
+		s.log.Error("udm: smf reg db error", append(metaFields, zap.String("imsi", imsi), zap.Error(err))...)
 		jsonError(w, http.StatusInternalServerError, "db_error")
 		return
 	}
 
-	s.log.Info("udm: SMF PDU session registered",
+	s.log.Info("udm: SMF PDU session registered", append(metaFields,
 		zap.String("imsi", imsi),
 		zap.Int("pdu_session_id", pduSessionID),
 		zap.String("smf", reg.SMFInstanceID),
-	)
+	)...)
 	w.WriteHeader(http.StatusCreated)
 }
 
 func (s *Server) handleSMFRegistrationDelete(w http.ResponseWriter, r *http.Request) {
+	metaFields := sbi.RequestMetaFromContext(r.Context()).LogFields()
 	imsi, err := resolveIMSI(r)
 	if err != nil {
 		jsonError(w, http.StatusBadRequest, "invalid_supi")
@@ -235,9 +240,44 @@ func (s *Server) handleSMFRegistrationDelete(w http.ResponseWriter, r *http.Requ
 	defer cancel()
 
 	_ = s.store.DeleteServingPDUSession(ctx, imsi, pduSessionID)
-	s.log.Info("udm: SMF PDU session deregistered",
+	s.log.Info("udm: SMF PDU session deregistered", append(metaFields,
 		zap.String("imsi", imsi),
 		zap.Int("pdu_session_id", pduSessionID),
-	)
+	)...)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func canonicalJSON(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return string(raw)
+	}
+	out, err := json.Marshal(v)
+	if err != nil {
+		return string(raw)
+	}
+	return string(out)
+}
+
+func canonicalPLMN(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var plmn struct {
+		MCC string `json:"mcc"`
+		MNC string `json:"mnc"`
+	}
+	if err := json.Unmarshal(raw, &plmn); err == nil && (plmn.MCC != "" || plmn.MNC != "") {
+		if plmn.MCC != "" && plmn.MNC != "" {
+			return plmn.MCC + "-" + plmn.MNC
+		}
+		if plmn.MCC != "" {
+			return plmn.MCC
+		}
+		return plmn.MNC
+	}
+	return canonicalJSON(raw)
 }

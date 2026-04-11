@@ -1,6 +1,6 @@
 # VectorCore HSS
 
-A high-performance Home Subscriber Server (HSS) and HLR for 3GPP LTE/4G and IMS
+A high-performance Home Subscriber Server (HSS),PCRF,HLR,UDM,UDR and PCF  for 3GPP 2/3G  LTE/4G 5GC and IMS
 networks, written in Go.
 
 ---
@@ -10,6 +10,7 @@ networks, written in Go.
 - **Multi-interface Diameter server** - S6a, S6c, S13, Cx, Sh, Gx, Rx, SWx, SLh, Zh on a single TCP/SCTP listener
 - **GSUP/HLR** - Osmocom IPA+GSUP server (port 4222) for OsmoMSC/OsmoSGSN; handles SendAuthInfo, UpdateLocation, PurgeMS; generates 2G triplets and 3G quintuplets for CSFB voice and SGs SMS
 - **SMS routing (S6c)** - Send-Routing-Info-for-SM (SRI-SM) resolves MSISDN to serving MME for MT SMS delivery via SGd/T4; Report-SM-Delivery-Status (RSDS) stores Message Waiting Data on delivery failure; Alert-Service-Centre (ALSC) is HSS-initiated and fires automatically when the subscriber re-attaches; SMS-in-MME registration state (MME-Number-for-MT-SMS, MME-Registered-for-SMS) tracked per subscriber via ULR
+- **5GC UDM, UDR, and PCF  N13,N10,N8,N15,N7 and SCP Proxy support
 - **Milenage authentication** - EUTRAN vector generation (AIR), EAP-AKA vector generation (SWx MAR), GBA vector generation (Zh MAR); custom c/r constant profiles per-AUC
 - **Atomic SQN management** - SELECT FOR UPDATE prevents SQN races during concurrent AIR from multiple MMEs
 - **In-memory read cache** - 60-second TTL cache on AUC and Subscriber hot paths
@@ -215,7 +216,6 @@ The full config.yaml with all sections:
 hss:
   OriginHost: hss01.epc.mnc001.mcc001.3gppnetwork.org
   OriginRealm: epc.mnc001.mcc001.3gppnetwork.org
-  ProductName: VectorCore HSS
   BindAddress: "::"
   BindPort: 3868
   EnableSCTP: false      # set true to also listen on SCTP (requires kernel sctp module)
@@ -285,41 +285,26 @@ gsup:
   bind_address: "::"
   bind_port: 4222
 
-udm:
-  # 5G UDR/UDM listener — implements the 3GPP Nudm SBI interfaces used by
-  # Open5GS AUSF, AMF, and SMF. VectorCore acts as both UDM (application
-  # logic) and UDR (data repository) — no separate UDR process; goes directly
-  # to the same PostgreSQL database as the 4G HSS.
-  #
-  # Interfaces served:
-  #   nudm-ueau  (port 7777)  5G-AKA auth vectors for AUSF
-  #   nudm-sdm   (port 7777)  subscription data for AMF/SMF
-  #   nudm-uecm  (port 7777)  UE context registrations for AMF/SMF
-  #
-  # Transport: cleartext HTTP/2 (h2c) when no TLS certs are set — the normal
-  # mode for Open5GS lab deployments.
-  enabled: false
-  bind_address: "::"
-  bind_port: 7777
+5gc:
+  sbi:
+    bind_address: "::"
+    bind_port: 7777
+    oauth2_enabled: false
+    oauth2_bypass: true
+    client:
+      mode: direct
+      scp_address: ""
 
-  # nrf_address is the base URL of the Open5GS NRF.
-  # Leave empty to skip NRF registration (standalone / dev mode).
-  # Example: nrf_address: "http://127.0.0.5:7777"
-  nrf_address: ""
+  udm:
+    enabled: false
+    nrf_address: ""
+    nf_instance_id: ""
+    suci_decryption_keys: []
 
-  # nf_instance_id is a stable UUID for this UDM instance used in NRF
-  # registration. Leave blank to auto-generate a UUID on each startup.
-  nf_instance_id: ""
-
-  # TLS — leave blank for cleartext HTTP/2 (h2c).
-  # Uncomment for production TLS:
-  # tls_cert_file: /etc/hss/tls/cert.pem
-  # tls_key_file:  /etc/hss/tls/key.pem
-
-  # OAuth2 token validation on inbound Nudm requests.
-  # Set oauth2_enabled: true and oauth2_bypass: false for production.
-  oauth2_enabled: false
-  oauth2_bypass: true     # skip token check even when oauth2_enabled (lab mode)
+  pcf:
+    enabled: false
+    nrf_address: ""
+    nf_instance_id: ""
 
 api:
   enabled: true
@@ -336,7 +321,7 @@ api:
 ### Run
 
 ```bash
-./bin/hss -c config.yaml
+./bin/hss -config config.yaml
 ```
 
 On startup the server will:

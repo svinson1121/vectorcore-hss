@@ -19,16 +19,21 @@ gsup:
   bind_address: "::"      # :: = all interfaces (IPv4+IPv6)
   bind_port: 4222         # standard Osmocom GSUP port
 
-udm:
-  enabled: false          # set true to start the 5G UDR/UDM listener
-  bind_address: "::"
-  bind_port: 7777         # standard Open5GS UDM port
-  nrf_address: ""         # e.g. "http://127.0.0.5:7777" — leave empty to skip NRF registration
-  nf_instance_id: ""      # stable UUID for this instance; auto-generated if blank
-  # tls_cert_file: /etc/hss/tls/cert.pem   # leave blank for h2c (cleartext HTTP/2)
-  # tls_key_file:  /etc/hss/tls/key.pem
-  oauth2_enabled: false   # validate Bearer tokens on inbound Nudm requests
-  oauth2_bypass: true     # skip token check even when oauth2_enabled (dev/lab mode)
+5gc:
+  sbi:
+    bind_address: "::"
+    bind_port: 7777
+    oauth2_enabled: false
+    oauth2_bypass: true
+  udm:
+    enabled: false
+    nrf_address: ""
+    nf_instance_id: ""
+    suci_decryption_keys: []
+  pcf:
+    enabled: false
+    nrf_address: ""
+    nf_instance_id: ""
 
 eir:
   no_match_response: 0        # Response when no EIR rule matches: 0=WHITELISTED, 1=BLACKLISTED, 2=GREYLISTED
@@ -278,12 +283,14 @@ GET /api/v1/oam/pdu_session/imsi/{imsi}
 ### Enable in config.yaml
 
 ```yaml
-udm:
-  enabled: true
-  bind_address: "::"
-  bind_port: 7777
-  nrf_address: "http://127.0.0.5:7777"
-  oauth2_bypass: true
+5gc:
+  sbi:
+    bind_address: "::"
+    bind_port: 7777
+    oauth2_bypass: true
+  udm:
+    enabled: true
+    nrf_address: "http://127.0.0.5:7777"
 ```
 
 ---

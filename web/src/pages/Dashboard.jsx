@@ -2,11 +2,11 @@ import React, { useState, useEffect, useRef, useCallback } from 'react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
-import { Users, Activity, Database, Wifi, XCircle, Shield, Clock, AlertTriangle } from 'lucide-react'
+import { Users, Activity, Database, XCircle, Shield, Clock, AlertTriangle } from 'lucide-react'
 import StatCard from '../components/StatCard.jsx'
 import Spinner from '../components/Spinner.jsx'
 import {
-  getSubscribers, getServingAPNs, getPDUSessions, getDiameterPeers,
+  getSubscribers, getServingAPNs, getPDUSessions,
   getPrometheusText, parsePrometheusText, sumMetric, getAuthFailures, getHealth,
 } from '../api/client.js'
 
@@ -81,7 +81,6 @@ export default function Dashboard() {
   const [subscribers, setSubscribers] = useState([])
   const [servingAPNs, setServingAPNs] = useState([])
   const [pduSessions, setPDUSessions] = useState([])
-  const [peers, setPeers] = useState([])
   const [metrics, setMetrics] = useState({})
   const [authFailures, setAuthFailures] = useState([])
   const [authFailuresError, setAuthFailuresError] = useState(null)
@@ -93,12 +92,11 @@ export default function Dashboard() {
 
   const fetchAll = useCallback(async () => {
     try {
-      const [subs, apns, pdus, promText, peersData, failuresResult, healthData] = await Promise.all([
+      const [subs, apns, pdus, promText, failuresResult, healthData] = await Promise.all([
         getSubscribers().catch(() => []),
         getServingAPNs().catch(() => []),
         getPDUSessions().catch(() => []),
         getPrometheusText().catch(() => ''),
-        getDiameterPeers().catch(() => []),
         getAuthFailures()
           .then(data => ({ data, error: null }))
           .catch(err => ({ data: [], error: err.message || 'Failed to load auth failures' })),
@@ -108,7 +106,6 @@ export default function Dashboard() {
       setSubscribers(Array.isArray(subs?.items) ? subs.items : (Array.isArray(subs) ? subs : []))
       setServingAPNs(Array.isArray(apns) ? apns : [])
       setPDUSessions(Array.isArray(pdus) ? pdus : [])
-      setPeers(Array.isArray(peersData) ? peersData : [])
       setMetrics(parsePrometheusText(promText || ''))
       setAuthFailures(Array.isArray(failuresResult?.data) ? failuresResult.data : [])
       setAuthFailuresError(failuresResult?.error || null)
@@ -170,7 +167,6 @@ export default function Dashboard() {
         <StatCard title="Total Subscribers"       value={subscribers.length.toLocaleString()} icon={<Users size={18} />}    color="var(--accent)"  />
         <StatCard title="Active 4G PDU Sessions"   value={servingAPNs.length.toLocaleString()} icon={<Activity size={18} />} color="var(--success)" />
         <StatCard title="Active 5G PDU Sessions"  value={pduSessions.length.toLocaleString()} icon={<Database size={18} />} color="var(--warning)" />
-        <StatCard title="Connected Diameter Peers" value={peers.length.toLocaleString()}       icon={<Wifi size={18} />}     color="var(--info)"   />
       </div>
 
       {/* Prometheus / Metrics block */}
@@ -195,35 +191,6 @@ export default function Dashboard() {
             </BarChart>
           </ResponsiveContainer>
         </div>
-      )}
-
-      {/* Connected Diameter Peers table */}
-      {peers.length > 0 && (
-        <>
-          <div className="section-title">Connected Diameter Peers</div>
-          <div className="table-container mb-16">
-            <table>
-              <thead>
-                <tr>
-                  <th>Origin Host</th>
-                  <th>Origin Realm</th>
-                  <th>Remote Address</th>
-                  <th>Transport</th>
-                </tr>
-              </thead>
-              <tbody>
-                {peers.map((peer, i) => (
-                  <tr key={i}>
-                    <td className="mono" style={{ fontSize: '0.8rem' }}>{peer.origin_host || '—'}</td>
-                    <td className="mono" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{peer.origin_realm || '—'}</td>
-                    <td className="mono" style={{ fontSize: '0.8rem' }}>{peer.remote_addr || '—'}</td>
-                    <td className="mono" style={{ fontSize: '0.8rem', color: 'var(--accent)' }}>{peer.transport || '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </>
       )}
 
       {/* Recent S6a Auth Failures */}

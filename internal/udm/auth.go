@@ -19,13 +19,14 @@ import (
 
 	"github.com/svinson1121/vectorcore-hss/internal/crypto"
 	"github.com/svinson1121/vectorcore-hss/internal/repository"
+	"github.com/svinson1121/vectorcore-hss/internal/sbi"
 )
 
 // authRequest is the JSON body sent by the AUSF.
 type authRequest struct {
-	ServingNetworkName  string               `json:"servingNetworkName"`
-	AUSFInstanceID      string               `json:"ausfInstanceId"`
-	ResynchronizationInfo *resyncInfo        `json:"resynchronizationInfo,omitempty"`
+	ServingNetworkName    string      `json:"servingNetworkName"`
+	AUSFInstanceID        string      `json:"ausfInstanceId"`
+	ResynchronizationInfo *resyncInfo `json:"resynchronizationInfo,omitempty"`
 }
 
 type resyncInfo struct {
@@ -35,9 +36,9 @@ type resyncInfo struct {
 
 // authResponse is the JSON body returned to the AUSF.
 type authResponse struct {
-	AuthType             string             `json:"authType"`
-	SUPI                 string             `json:"supi"`
-	AuthenticationVector *authVector5GAKA   `json:"authenticationVector"`
+	AuthType             string           `json:"authType"`
+	SUPI                 string           `json:"supi"`
+	AuthenticationVector *authVector5GAKA `json:"authenticationVector"`
 }
 
 type authVector5GAKA struct {
@@ -49,10 +50,11 @@ type authVector5GAKA struct {
 }
 
 func (s *Server) handleGenerateAuthData(w http.ResponseWriter, r *http.Request) {
+	metaFields := sbi.RequestMetaFromContext(r.Context()).LogFields()
 	supiRaw := chi.URLParam(r, "supi")
-	imsi, err := ParseSUPI(supiRaw)
+	imsi, err := ParseSUPIWithKeys(supiRaw, s.hnet)
 	if err != nil {
-		s.log.Warn("udm: auth bad SUPI", zap.String("supi", supiRaw), zap.Error(err))
+		s.log.Warn("udm: auth bad SUPI", append(metaFields, zap.String("supi", supiRaw), zap.Error(err))...)
 		jsonError(w, http.StatusBadRequest, "invalid_supi")
 		return
 	}
@@ -74,19 +76,19 @@ func (s *Server) handleGenerateAuthData(w http.ResponseWriter, r *http.Request) 
 
 	auc, err := s.store.GetAUCByIMSI(ctx, imsi)
 	if err == repository.ErrNotFound {
-		s.log.Warn("udm: auth unknown IMSI", zap.String("imsi", imsi))
+		s.log.Warn("udm: auth unknown IMSI", append(metaFields, zap.String("imsi", imsi))...)
 		jsonError(w, http.StatusNotFound, "user_not_found")
 		return
 	}
 	if err != nil {
-		s.log.Error("udm: auth db error", zap.String("imsi", imsi), zap.Error(err))
+		s.log.Error("udm: auth db error", append(metaFields, zap.String("imsi", imsi), zap.Error(err))...)
 		jsonError(w, http.StatusInternalServerError, "db_error")
 		return
 	}
 
 	profile, err := crypto.LoadProfile(ctx, s.store, auc.AlgorithmProfileID)
 	if err != nil {
-		s.log.Error("udm: auth profile load error", zap.String("imsi", imsi), zap.Error(err))
+		s.log.Error("udm: auth profile load error", append(metaFields, zap.String("imsi", imsi), zap.Error(err))...)
 		jsonError(w, http.StatusInternalServerError, "profile_error")
 		return
 	}
@@ -105,7 +107,7 @@ func (s *Server) handleGenerateAuthData(w http.ResponseWriter, r *http.Request) 
 		vec, err = crypto.Generate5GAKAVector(auc, profile, snn, s.store, ctx)
 	}
 	if err != nil {
-		s.log.Error("udm: auth vector generation failed", zap.String("imsi", imsi), zap.Error(err))
+		s.log.Error("udm: auth vector generation failed", append(metaFields, zap.String("imsi", imsi), zap.Error(err))...)
 		jsonError(w, http.StatusInternalServerError, "vector_generation_failed")
 		return
 	}
@@ -122,15 +124,31 @@ func (s *Server) handleGenerateAuthData(w http.ResponseWriter, r *http.Request) 
 		},
 	}
 
-	s.log.Info("udm: auth success",
-		zap.String("imsi", imsi),
-		zap.String("snn", snn),
-	)
+	s.log.Info("udm: auth success", append(metaFields, zap.String("imsi", imsi), zap.String("snn", snn))...)
 	jsonOK(w, resp)
 }
 
 // handleAuthEvent receives auth success/failure notifications from the AUSF.
-// POST /nudm-ueau/v{1,2}/{supi}/auth-events — no action needed, just 201.
+// POST /nudm-ueau/v{1,2}/{supi}/auth-events
+//
+// Per TS 29.503 §5.2.2.4, the AUSF POSTs an AuthEvent body and expects the
+// UDM to echo it back in the 201 Created response. Open5GS AUSF parses the
+// response body to confirm the event was committed; an empty body causes it
+// to log "No AuthEvent" and return 400 to the AMF.
 func (s *Server) handleAuthEvent(w http.ResponseWriter, r *http.Request) {
+	var event json.RawMessage
+	if err := json.NewDecoder(r.Body).Decode(&event); err != nil || len(event) == 0 {
+		// Body missing or unreadable — return minimal valid AuthEvent.
+		event = json.RawMessage(`{"success":true}`)
+	}
+	// Location header must be an absolute URI per TS 29.503 §5.2.2.4.
+	// Open5GS AUSF validates the scheme at conv.c:554.
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	w.Header().Set("Location", scheme+"://"+r.Host+r.URL.Path+"/1")
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
+	w.Write(event)
 }

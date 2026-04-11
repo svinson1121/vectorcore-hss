@@ -15,12 +15,12 @@ package udm
 //            TLS present → TLS + h2 (production).
 
 import (
-	"crypto/rand"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
@@ -30,6 +30,7 @@ import (
 	"github.com/svinson1121/vectorcore-hss/internal/config"
 	"github.com/svinson1121/vectorcore-hss/internal/peertracker"
 	"github.com/svinson1121/vectorcore-hss/internal/repository"
+	"github.com/svinson1121/vectorcore-hss/internal/sbi"
 )
 
 // Server is the UDR/UDM HTTP/2 server.
@@ -37,8 +38,10 @@ type Server struct {
 	cfg   config.UDMConfig
 	store repository.Repository
 	log   *zap.Logger
-	jwks  *jwksStore
+	jwks  *sbi.JWKSStore
+	hnet  *HNetKeyStore
 	pt    *peertracker.Tracker
+	fpt   *peertracker.Tracker
 }
 
 // New creates a new UDM server.
@@ -46,16 +49,44 @@ type Server struct {
 // registration always has a stable-per-process identity.
 func New(cfg config.UDMConfig, store repository.Repository, log *zap.Logger) *Server {
 	if cfg.NFInstanceID == "" {
-		cfg.NFInstanceID = newUUID()
+		cfg.NFInstanceID = sbi.NewNFInstanceID()
 		log.Info("udm: generated NFInstanceID", zap.String("nf_instance_id", cfg.NFInstanceID))
 	}
+
+	hnet, err := LoadHNetKeys(cfg.SUCIDecryptionKeys)
+	if err != nil {
+		log.Fatal("udm: failed to load HNet keys", zap.Error(err))
+	}
+	if len(cfg.SUCIDecryptionKeys) > 0 {
+		log.Info("udm: loaded SUCI decryption keys", zap.Int("count", len(cfg.SUCIDecryptionKeys)))
+	}
+
 	return &Server{
 		cfg:   cfg,
 		store: store,
 		log:   log,
-		jwks:  &jwksStore{},
+		jwks:  &sbi.JWKSStore{},
+		hnet:  hnet,
 		pt:    peertracker.New(),
+		fpt:   peertracker.NewWithMaxAge(2 * time.Minute),
 	}
+}
+
+func (s *Server) UsePeerTrackers(pt, fpt *peertracker.Tracker) {
+	s.pt = pt
+	s.fpt = fpt
+}
+
+func (s *Server) Config() config.UDMConfig {
+	return s.cfg
+}
+
+func (s *Server) MountRoutes(r *chi.Mux) {
+	s.mountRoutes(r)
+}
+
+func (s *Server) StartNRFRegistration() {
+	s.startNRFRegistration()
 }
 
 // Peers returns the live SBI peer tracker.
@@ -66,14 +97,11 @@ func (s *Server) Peers() *peertracker.Tracker {
 	return s.pt
 }
 
-// newUUID returns a random RFC 4122 version 4 UUID string.
-func newUUID() string {
-	var b [16]byte
-	rand.Read(b[:])             //nolint:errcheck — crypto/rand.Read never returns an error on supported platforms
-	b[6] = (b[6] & 0x0f) | 0x40 // version 4
-	b[8] = (b[8] & 0x3f) | 0x80 // variant bits
-	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
-		b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+func (s *Server) ForwardedPeers() *peertracker.Tracker {
+	if s.fpt == nil {
+		s.fpt = peertracker.NewWithMaxAge(2 * time.Minute)
+	}
+	return s.fpt
 }
 
 // Start begins listening.  Blocks until a fatal error.
@@ -94,7 +122,7 @@ func (s *Server) Start() error {
 		}
 		srv := &http.Server{
 			Addr:    addr,
-			Handler: r,
+			Handler: sbi.InboundMetadataMiddleware(s.ForwardedPeers(), "https/h2")(r),
 			TLSConfig: &tls.Config{
 				Certificates: []tls.Certificate{cert},
 				NextProtos:   []string{"h2"},
@@ -108,7 +136,7 @@ func (s *Server) Start() error {
 	// Cleartext HTTP/2 (h2c) — the normal mode for Open5GS lab deployments.
 	srv := &http.Server{
 		Addr:      addr,
-		Handler:   h2c.NewHandler(r, &http2.Server{}),
+		Handler:   h2c.NewHandler(sbi.InboundMetadataMiddleware(s.ForwardedPeers(), "h2c")(r), &http2.Server{}),
 		ConnState: s.connState("h2c"),
 	}
 	return srv.ListenAndServe()
@@ -147,6 +175,8 @@ func (s *Server) mountRoutes(r *chi.Mux) {
 			s.wrapOAuth("nudm-sdm", s.handleSMFSelectData))
 		r.Get(sdm+"/nssai",
 			s.wrapOAuth("nudm-sdm", s.handleNSSAI))
+		r.Get(sdm+"/ue-context-in-smf-data",
+			s.wrapOAuth("nudm-sdm", s.handleUEContextInSMFData))
 		r.Post(sdm+"/sdm-subscriptions",
 			s.wrapOAuth("nudm-sdm", s.handleSDMSubscribe))
 		r.Delete(sdm+"/sdm-subscriptions/{subscriptionId}",
@@ -171,7 +201,6 @@ func (s *Server) mountRoutes(r *chi.Mux) {
 	}
 
 	// nudr-dr — UDR Data Management (N36: PCF → UDR, N37: NEF → UDR)
-	// v1 only — Open5GS PCF does not use v2 for nudr-dr.
 	for _, ver := range []string{"v1", "v2"} {
 		pd := fmt.Sprintf("/nudr-dr/%s/policy-data/ues/{ueId}", ver)
 		r.Get(pd+"/am-data",
@@ -193,7 +222,7 @@ func (s *Server) mountRoutes(r *chi.Mux) {
 
 // wrapOAuth wraps a handler with OAuth2 middleware for the given scope.
 func (s *Server) wrapOAuth(scope string, h http.HandlerFunc) http.HandlerFunc {
-	wrapped := oauthMiddleware(s.cfg.OAuth2Enabled, s.cfg.OAuth2Bypass, scope, s.jwks, s.log, h)
+	wrapped := sbi.OAuthMiddleware(s.cfg.OAuth2Enabled, s.cfg.OAuth2Bypass, scope, s.jwks, s.log, h)
 	return wrapped.ServeHTTP
 }
 

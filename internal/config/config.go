@@ -16,29 +16,109 @@ type Config struct {
 	Geored   GeoredConfig   `yaml:"geored"`
 	API      APIConfig      `yaml:"api"`
 	GSUP     GSUPConfig     `yaml:"gsup"`
+	FiveGC   FiveGCConfig   `yaml:"5gc"`
 	UDM      UDMConfig      `yaml:"udm"`
+	PCF      PCFConfig      `yaml:"pcf"`
+}
+
+type SBIClientConfig struct {
+	Mode       string `yaml:"mode"`
+	SCPAddress string `yaml:"scp_address"`
+}
+
+type FiveGCSBIConfig struct {
+	BindAddress   string          `yaml:"bind_address"`
+	BindPort      int             `yaml:"bind_port"`
+	TLSCertFile   string          `yaml:"tls_cert_file"`
+	TLSKeyFile    string          `yaml:"tls_key_file"`
+	OAuth2Enabled bool            `yaml:"oauth2_enabled"`
+	OAuth2Bypass  bool            `yaml:"oauth2_bypass"`
+	Client        SBIClientConfig `yaml:"client"`
+}
+
+type FiveGCNFConfig struct {
+	Enabled      bool   `yaml:"enabled"`
+	MCC          string `yaml:"mcc"`
+	MNC          string `yaml:"mnc"`
+	NRFAddress   string `yaml:"nrf_address"`
+	NFInstanceID string `yaml:"nf_instance_id"`
+}
+
+type FiveGCUDMConfig struct {
+	FiveGCNFConfig     `yaml:",inline"`
+	SUCIDecryptionKeys []HNetKeyConfig `yaml:"suci_decryption_keys"`
+}
+
+type FiveGCPCFConfig struct {
+	FiveGCNFConfig `yaml:",inline"`
+}
+
+type FiveGCConfig struct {
+	SBI FiveGCSBIConfig `yaml:"sbi"`
+	UDM FiveGCUDMConfig `yaml:"udm"`
+	PCF FiveGCPCFConfig `yaml:"pcf"`
 }
 
 // UDMConfig controls the 5G UDR/UDM listener (Nudm SBI interfaces).
 // VectorCore acts as both UDM and UDR — it implements the Nudm REST APIs
 // that Open5GS AUSF/AMF/SMF call, backed directly by the same PostgreSQL DB.
 type UDMConfig struct {
-	Enabled        bool   `yaml:"enabled"`
-	BindAddress    string `yaml:"bind_address"`
-	BindPort       int    `yaml:"bind_port"`
+	Enabled     bool   `yaml:"enabled"`
+	BindAddress string `yaml:"bind_address"`
+	BindPort    int    `yaml:"bind_port"`
+	// MCC and MNC identify the home PLMN for NRF registration.
+	// If left empty they are inherited from hss.MCC / hss.MNC at startup.
+	MCC string `yaml:"mcc"`
+	MNC string `yaml:"mnc"`
 	// NRFAddress is the base URL of the Open5GS NRF, e.g. "http://nrf:7777".
 	// Leave empty to skip NRF registration (standalone / dev mode).
-	NRFAddress     string `yaml:"nrf_address"`
+	NRFAddress string `yaml:"nrf_address"`
 	// NFInstanceID is a stable UUID for this UDM instance.
 	// Auto-generated on first start if left blank.
-	NFInstanceID   string `yaml:"nf_instance_id"`
+	NFInstanceID string `yaml:"nf_instance_id"`
 	// TLS — leave blank for cleartext HTTP/2 (h2c), used in typical Open5GS lab setups.
-	TLSCertFile    string `yaml:"tls_cert_file"`
-	TLSKeyFile     string `yaml:"tls_key_file"`
+	TLSCertFile string `yaml:"tls_cert_file"`
+	TLSKeyFile  string `yaml:"tls_key_file"`
 	// OAuth2Enabled validates Bearer JWT tokens on inbound requests.
-	OAuth2Enabled  bool   `yaml:"oauth2_enabled"`
+	OAuth2Enabled bool `yaml:"oauth2_enabled"`
 	// OAuth2Bypass skips token validation (dev/lab mode only).
-	OAuth2Bypass   bool   `yaml:"oauth2_bypass"`
+	OAuth2Bypass bool            `yaml:"oauth2_bypass"`
+	SBIClient    SBIClientConfig `yaml:"sbi_client"`
+	// SUCIDecryptionKeys holds the Home Network private keys used to decrypt
+	// encrypted SUCI (SUCI Protection Scheme Profile A / Profile B per
+	// TS 33.501 Annex C). Each entry maps a
+	// HomeNetworkPublicKeyIdentifier (1-255) to a PEM key file.
+	SUCIDecryptionKeys []HNetKeyConfig `yaml:"suci_decryption_keys"`
+	// LegacyHNetKeys keeps backward compatibility with the older config key.
+	LegacyHNetKeys []HNetKeyConfig `yaml:"hnet_keys"`
+}
+
+// HNetKeyConfig is one entry in the Home Network key list.
+type HNetKeyConfig struct {
+	// KeyID is the HomeNetworkPublicKeyIdentifier (1–255) set on the SIM.
+	KeyID int `yaml:"key_id"`
+	// Scheme: 1 = Profile A (X25519/ECIES), 2 = Profile B (P-256/ECIES).
+	Scheme int `yaml:"scheme"`
+	// KeyFile is the path to the PEM-encoded EC private key file.
+	KeyFile string `yaml:"key_file"`
+}
+
+// PCFConfig controls the 5G PCF listener (Npcf SBI interfaces).
+type PCFConfig struct {
+	Enabled       bool            `yaml:"enabled"`
+	BindAddress   string          `yaml:"bind_address"`
+	BindPort      int             `yaml:"bind_port"`
+	// MCC and MNC identify the home PLMN for NRF registration.
+	// If left empty they are inherited from hss.MCC / hss.MNC at startup.
+	MCC string `yaml:"mcc"`
+	MNC string `yaml:"mnc"`
+	NRFAddress    string          `yaml:"nrf_address"`
+	NFInstanceID  string          `yaml:"nf_instance_id"`
+	TLSCertFile   string          `yaml:"tls_cert_file"`
+	TLSKeyFile    string          `yaml:"tls_key_file"`
+	OAuth2Enabled bool            `yaml:"oauth2_enabled"`
+	OAuth2Bypass  bool            `yaml:"oauth2_bypass"`
+	SBIClient     SBIClientConfig `yaml:"sbi_client"`
 }
 
 // GSUPConfig controls the Osmocom GSUP/HLR listener used by OsmoMSC/OsmoSGSN
@@ -49,7 +129,6 @@ type GSUPConfig struct {
 	BindPort    int    `yaml:"bind_port"`
 }
 
-
 type RoamingConfig struct {
 	// AllowUndefinedNetworks controls the default behaviour when a subscriber
 	// roams to a network that has no entry in the roaming_network table.
@@ -58,14 +137,12 @@ type RoamingConfig struct {
 	AllowUndefinedNetworks bool `yaml:"allow_undefined_networks"`
 }
 
-
 type HSSConfig struct {
 	OriginHost                   string   `yaml:"OriginHost"`
 	OriginRealm                  string   `yaml:"OriginRealm"`
-	ProductName                  string   `yaml:"ProductName"`
 	BindAddress                  string   `yaml:"BindAddress"`
 	BindPort                     int      `yaml:"BindPort"`
-	EnableSCTP                   bool     `yaml:"EnableSCTP"`   // listen on SCTP in addition to TCP
+	EnableSCTP                   bool     `yaml:"EnableSCTP"` // listen on SCTP in addition to TCP
 	DWRInterval                  int      `yaml:"DWRInterval"`
 	CancelLocationRequestEnabled bool     `yaml:"CancelLocationRequest_Enabled"`
 	AllowedPeers                 []string `yaml:"AllowedPeers"`
@@ -159,18 +236,20 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("config: read %s: %w", path, err)
 	}
 	cfg := &Config{
-		HSS:      HSSConfig{ProductName: "VectorCore HSS", BindAddress: "0.0.0.0", BindPort: 3868, DWRInterval: 30},
+		HSS:      HSSConfig{BindAddress: "0.0.0.0", BindPort: 3868, DWRInterval: 30},
 		Database: DatabaseConfig{Port: 5432, MaxOpenConns: 30, MaxIdleConns: 10, ConnMaxLifetime: 300},
 		Logging:  LoggingConfig{Level: "info"},
 		EIR:      EIRConfig{NoMatchResponse: 2, IMSIIMEILogging: true, TACDBEnabled: true},
 		Roaming:  RoamingConfig{AllowUndefinedNetworks: true},
 		API:      APIConfig{Enabled: true, BindAddress: "0.0.0.0", BindPort: 8080},
 		GSUP:     GSUPConfig{Enabled: false, BindAddress: "::", BindPort: 4222},
-		UDM:      UDMConfig{Enabled: false, BindAddress: "::", BindPort: 7777},
+		UDM:      UDMConfig{Enabled: false, BindAddress: "::", BindPort: 7777, SBIClient: SBIClientConfig{Mode: "direct"}},
+		PCF:      PCFConfig{Enabled: false, BindAddress: "::", BindPort: 7778, SBIClient: SBIClientConfig{Mode: "direct"}},
 	}
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("config: parse: %w", err)
 	}
+	normalizeFiveGC(cfg)
 	if cfg.HSS.OriginHost == "" {
 		return nil, fmt.Errorf("config: hss.OriginHost is required")
 	}
@@ -181,4 +260,65 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("config: database.db_type is required")
 	}
 	return cfg, nil
+}
+
+func normalizeFiveGC(cfg *Config) {
+	if len(cfg.UDM.SUCIDecryptionKeys) == 0 && len(cfg.UDM.LegacyHNetKeys) > 0 {
+		cfg.UDM.SUCIDecryptionKeys = cfg.UDM.LegacyHNetKeys
+	}
+
+	if !fiveGCConfigured(cfg.FiveGC) {
+		return
+	}
+
+	if cfg.FiveGC.SBI.BindAddress == "" {
+		cfg.FiveGC.SBI.BindAddress = "::"
+	}
+	if cfg.FiveGC.SBI.BindPort == 0 {
+		cfg.FiveGC.SBI.BindPort = 7777
+	}
+	if cfg.FiveGC.SBI.Client.Mode == "" {
+		cfg.FiveGC.SBI.Client.Mode = "direct"
+	}
+
+	cfg.UDM.Enabled = cfg.FiveGC.UDM.Enabled
+	cfg.UDM.MCC = cfg.FiveGC.UDM.MCC
+	cfg.UDM.MNC = cfg.FiveGC.UDM.MNC
+	cfg.UDM.NRFAddress = cfg.FiveGC.UDM.NRFAddress
+	cfg.UDM.NFInstanceID = cfg.FiveGC.UDM.NFInstanceID
+	cfg.UDM.SUCIDecryptionKeys = cfg.FiveGC.UDM.SUCIDecryptionKeys
+
+	cfg.PCF.Enabled = cfg.FiveGC.PCF.Enabled
+	cfg.PCF.MCC = cfg.FiveGC.PCF.MCC
+	cfg.PCF.MNC = cfg.FiveGC.PCF.MNC
+	cfg.PCF.NRFAddress = cfg.FiveGC.PCF.NRFAddress
+	cfg.PCF.NFInstanceID = cfg.FiveGC.PCF.NFInstanceID
+
+	if cfg.FiveGC.SBI.BindAddress != "" {
+		cfg.UDM.BindAddress = cfg.FiveGC.SBI.BindAddress
+		cfg.PCF.BindAddress = cfg.FiveGC.SBI.BindAddress
+	}
+	if cfg.FiveGC.SBI.BindPort != 0 {
+		cfg.UDM.BindPort = cfg.FiveGC.SBI.BindPort
+		cfg.PCF.BindPort = cfg.FiveGC.SBI.BindPort
+	}
+	cfg.UDM.TLSCertFile = cfg.FiveGC.SBI.TLSCertFile
+	cfg.UDM.TLSKeyFile = cfg.FiveGC.SBI.TLSKeyFile
+	cfg.UDM.OAuth2Enabled = cfg.FiveGC.SBI.OAuth2Enabled
+	cfg.UDM.OAuth2Bypass = cfg.FiveGC.SBI.OAuth2Bypass
+	cfg.UDM.SBIClient = cfg.FiveGC.SBI.Client
+
+	cfg.PCF.TLSCertFile = cfg.FiveGC.SBI.TLSCertFile
+	cfg.PCF.TLSKeyFile = cfg.FiveGC.SBI.TLSKeyFile
+	cfg.PCF.OAuth2Enabled = cfg.FiveGC.SBI.OAuth2Enabled
+	cfg.PCF.OAuth2Bypass = cfg.FiveGC.SBI.OAuth2Bypass
+	cfg.PCF.SBIClient = cfg.FiveGC.SBI.Client
+}
+
+func fiveGCConfigured(cfg FiveGCConfig) bool {
+	return cfg.UDM.Enabled || cfg.PCF.Enabled ||
+		cfg.SBI.BindAddress != "" || cfg.SBI.BindPort != 0 ||
+		cfg.UDM.NRFAddress != "" || cfg.PCF.NRFAddress != "" ||
+		cfg.UDM.NFInstanceID != "" || cfg.PCF.NFInstanceID != "" ||
+		len(cfg.UDM.SUCIDecryptionKeys) > 0
 }

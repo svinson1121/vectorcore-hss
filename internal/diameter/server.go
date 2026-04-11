@@ -33,8 +33,9 @@ import (
 )
 
 const (
-	vendor3GPP = uint32(10415)
-	appIDS6a   = uint32(16777251)
+	vendor3GPP     = uint32(10415)
+	appIDS6a       = uint32(16777251)
+	diamProductName = "VectorCore HSS"
 )
 
 type Server struct {
@@ -113,7 +114,7 @@ func NewServer(cfg *config.Config, store repository.Repository, log *zap.Logger)
 		OriginHost:       datatype.DiameterIdentity(cfg.HSS.OriginHost),
 		OriginRealm:      datatype.DiameterIdentity(cfg.HSS.OriginRealm),
 		VendorID:         datatype.Unsigned32(vendor3GPP),
-		ProductName:      datatype.UTF8String(cfg.HSS.ProductName),
+		ProductName:      datatype.UTF8String(diamProductName),
 		OriginStateID:    datatype.Unsigned32(uint32(time.Now().Unix())),
 		FirmwareRevision: 1,
 	}

@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,12 +32,12 @@ const defaultNSSAI = `[{"sst":1}]`
 // ── AM-DATA ──────────────────────────────────────────────────────────────────
 
 type amData struct {
-	GPSIS              []string       `json:"gpsis,omitempty"`
-	SubscribedUEAMBR   *ambrData      `json:"subscribedUeAmbr,omitempty"`
-	NSSAI              *nssaiData     `json:"nssai,omitempty"`
-	RatRestrictions    []string       `json:"ratRestrictions"`
-	ForbiddenAreas     []interface{}  `json:"forbiddenAreas"`
-	ServiceAreaRestriction interface{} `json:"serviceAreaRestriction"`
+	GPSIS                  []string      `json:"gpsis,omitempty"`
+	SubscribedUEAMBR       *ambrData     `json:"subscribedUeAmbr,omitempty"`
+	NSSAI                  *nssaiData    `json:"nssai,omitempty"`
+	RatRestrictions        []string      `json:"ratRestrictions,omitempty"`
+	ForbiddenAreas         []interface{} `json:"forbiddenAreas,omitempty"`
+	ServiceAreaRestriction *struct{}     `json:"serviceAreaRestriction,omitempty"`
 }
 
 type ambrData struct {
@@ -90,9 +91,6 @@ func (s *Server) handleAMData(w http.ResponseWriter, r *http.Request) {
 			DefaultSingleNssais: slices,
 			SingleNssais:        slices,
 		},
-		RatRestrictions:        []string{},
-		ForbiddenAreas:         []interface{}{},
-		ServiceAreaRestriction: struct{}{},
 	}
 	if sub.MSISDN != nil && *sub.MSISDN != "" {
 		resp.GPSIS = []string{"msisdn-" + *sub.MSISDN}
@@ -112,7 +110,18 @@ type dnnConfig struct {
 	PDUSessionTypes  pduSessionTypes  `json:"pduSessionTypes"`
 	SSCModes         sscModes         `json:"sscModes"`
 	SessionAMBR      *ambrData        `json:"sessionAmbr,omitempty"`
-	FiveQI           int              `json:"5gQosProfile,omitempty"`
+	FiveGQosProfile  *qosProfile      `json:"5gQosProfile,omitempty"`
+}
+
+type qosProfile struct {
+	FiveQI int     `json:"5qi"`
+	ARP    arpData `json:"arp"`
+}
+
+type arpData struct {
+	PriorityLevel int    `json:"priorityLevel"`
+	PreemptCap    string `json:"preemptCap"`
+	PreemptVuln   string `json:"preemptVuln"`
 }
 
 type pduSessionTypes struct {
@@ -155,7 +164,8 @@ func (s *Server) handleSMData(w http.ResponseWriter, r *http.Request) {
 	// Build one smDataItem per slice; each item contains all the subscriber's DNNs.
 	// Query-param filtering by single-nssai / dnn is handled below.
 	filterSST := 0
-	filterDNN := r.URL.Query().Get("dnn")
+	requestedDNN := strings.TrimSpace(r.URL.Query().Get("dnn"))
+	filterDNN := normalizeDNN(requestedDNN)
 	if v := r.URL.Query().Get("single-nssai"); v != "" {
 		var sn snssai
 		if json.Unmarshal([]byte(v), &sn) == nil {
@@ -171,10 +181,22 @@ func (s *Server) handleSMData(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			continue
 		}
-		if filterDNN != "" && apn.APN != filterDNN {
+			if filterDNN != "" && normalizeDNN(apn.APN) != filterDNN {
 			continue
 		}
-		dnnCfgs[apn.APN] = &dnnConfig{
+			key := apn.APN
+			if requestedDNN != "" {
+				key = requestedDNN
+			}
+			fiveQI := apn.QCI
+			if fiveQI == 0 {
+				fiveQI = 9
+			}
+			arpPriority := apn.ARPPriority
+			if arpPriority == 0 {
+				arpPriority = 4
+			}
+			dnnCfgs[key] = &dnnConfig{
 			PDUSessionTypes: pduSessionTypes{
 				DefaultSessionType:  "IPV4",
 				AllowedSessionTypes: []string{"IPV4"},
@@ -186,6 +208,14 @@ func (s *Server) handleSMData(w http.ResponseWriter, r *http.Request) {
 			SessionAMBR: &ambrData{
 				Uplink:   kbpsToString(apn.APNAMBRUp),
 				Downlink: kbpsToString(apn.APNAMBRDown),
+			},
+			FiveGQosProfile: &qosProfile{
+				FiveQI: fiveQI,
+				ARP: arpData{
+					PriorityLevel: arpPriority,
+					PreemptCap:    preemptCapFlag(apn.ARPPreemptionCapability),
+					PreemptVuln:   preemptVulnFlag(apn.ARPPreemptionVulnerability),
+				},
 			},
 		}
 	}
@@ -219,6 +249,13 @@ type snssaiInfo struct {
 
 type dnnInfo struct {
 	DNN string `json:"dnn"`
+}
+
+func formatSNSSAIKey(n snssai) string {
+	if n.SD != "" {
+		return fmt.Sprintf("%d-%s", n.SST, strings.ToLower(n.SD))
+	}
+	return strconv.Itoa(n.SST)
 }
 
 func (s *Server) handleSMFSelectData(w http.ResponseWriter, r *http.Request) {
@@ -262,12 +299,20 @@ func (s *Server) handleSMFSelectData(w http.ResponseWriter, r *http.Request) {
 
 	snssaiInfos := make(map[string]snssaiInfo)
 	for _, sl := range slices {
-		key := fmt.Sprintf(`{"sst":%d}`, sl.SST)
-		if sl.SD != "" {
-			key = fmt.Sprintf(`{"sst":%d,"sd":"%s"}`, sl.SST, sl.SD)
-		}
+		key := formatSNSSAIKey(sl)
 		snssaiInfos[key] = snssaiInfo{DNNInfos: dnns}
 	}
+
+	s.log.Info("udm: smf-select-data", zap.String("imsi", imsi),
+		zap.String("nssai_raw", nssaiJSON),
+		zap.Any("keys", func() []string {
+			var ks []string
+			for k := range snssaiInfos {
+				ks = append(ks, k)
+			}
+			return ks
+		}()),
+		zap.Any("dnns", dnns))
 
 	jsonOK(w, smfSelectData{SubscribedSnssaiInfos: snssaiInfos})
 }
@@ -307,6 +352,19 @@ func (s *Server) handleNSSAI(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ── UE CONTEXT IN SMF DATA ───────────────────────────────────────────────────
+
+// handleUEContextInSMFData returns any existing PDU sessions the UE has with
+// an SMF. AMF calls this during mobility/periodic registrations to preserve
+// PDU sessions. Return an empty context when there are none.
+func (s *Server) handleUEContextInSMFData(w http.ResponseWriter, r *http.Request) {
+	// Return empty UeContextInSmfData — no PDU sessions or PGW info to report.
+	jsonOK(w, map[string]interface{}{
+		"pduSessions": map[string]interface{}{},
+		"pgwInfo":     []interface{}{},
+	})
+}
+
 // ── SDM SUBSCRIPTIONS (stub) ─────────────────────────────────────────────────
 
 type sdmSubscription struct {
@@ -325,7 +383,11 @@ func (s *Server) handleSDMSubscribe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sub.SubscriptionID = "sub-" + fmt.Sprintf("%d", time.Now().UnixNano())
-	w.Header().Set("Location", r.URL.Path+"/"+sub.SubscriptionID)
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	w.Header().Set("Location", scheme+"://"+r.Host+r.URL.Path+"/"+sub.SubscriptionID)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(sub)
@@ -355,10 +417,20 @@ func kbpsToString(kbps int) string {
 // parseNSSAI unmarshals a JSON NSSAI array, defaulting to SST=1 on error.
 func parseNSSAI(raw string) []snssai {
 	var slices []snssai
-	if err := json.Unmarshal([]byte(raw), &slices); err != nil || len(slices) == 0 {
+	if err := json.Unmarshal([]byte(raw), &slices); err != nil {
 		return []snssai{{SST: 1}}
 	}
-	return slices
+	var filtered []snssai
+	for _, sl := range slices {
+		if sl.SST <= 0 {
+			continue
+		}
+		filtered = append(filtered, sl)
+	}
+	if len(filtered) == 0 {
+		return []snssai{{SST: 1}}
+	}
+	return filtered
 }
 
 // parseAPNList parses the comma-separated APN ID list stored in subscriber.apn_list.
@@ -375,4 +447,12 @@ func parseAPNList(list string) []int {
 		}
 	}
 	return ids
+}
+
+func normalizeDNN(s string) string {
+	s = strings.TrimSpace(s)
+	if i := strings.IndexByte(s, '.'); i > 0 {
+		return s[:i]
+	}
+	return s
 }

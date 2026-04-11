@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"sort"
 	"syscall"
 	"time"
 
@@ -21,10 +22,12 @@ import (
 	"github.com/svinson1121/vectorcore-hss/internal/api"
 	"github.com/svinson1121/vectorcore-hss/internal/config"
 	"github.com/svinson1121/vectorcore-hss/internal/diameter"
+	"github.com/svinson1121/vectorcore-hss/internal/fivegc"
 	"github.com/svinson1121/vectorcore-hss/internal/geored"
 	"github.com/svinson1121/vectorcore-hss/internal/gsup"
 	"github.com/svinson1121/vectorcore-hss/internal/metrics"
 	"github.com/svinson1121/vectorcore-hss/internal/models"
+	"github.com/svinson1121/vectorcore-hss/internal/pcf"
 	"github.com/svinson1121/vectorcore-hss/internal/peertracker"
 	pgstore "github.com/svinson1121/vectorcore-hss/internal/repository/postgres"
 	"github.com/svinson1121/vectorcore-hss/internal/taccache"
@@ -36,6 +39,7 @@ import (
 // peerListAdapter adapts diameter.PeerTracker to the api.PeerLister interface.
 type peerListAdapter struct{ pt *diameter.PeerTracker }
 type servicePeerListAdapter struct{ pt *peertracker.Tracker }
+type multiServicePeerListAdapter struct{ trackers []*peertracker.Tracker }
 
 // authFailureAdapter adapts s6a.Handlers to the api.AuthFailureLister interface.
 type authFailureAdapter struct{ srv *diameter.Server }
@@ -82,6 +86,38 @@ func (a *servicePeerListAdapter) List() []api.ServicePeer {
 			Transport:  p.Transport,
 		}
 	}
+	return out
+}
+
+func (a *multiServicePeerListAdapter) List() []api.ServicePeer {
+	var out []api.ServicePeer
+	seen := make(map[string]struct{})
+	for _, tracker := range a.trackers {
+		if tracker == nil {
+			continue
+		}
+		for _, p := range tracker.List() {
+			key := p.Name + "\x00" + p.RemoteAddr + "\x00" + p.Transport
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			out = append(out, api.ServicePeer{
+				Name:       p.Name,
+				RemoteAddr: p.RemoteAddr,
+				Transport:  p.Transport,
+			})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Transport != out[j].Transport {
+			return out[i].Transport < out[j].Transport
+		}
+		if out[i].Name != out[j].Name {
+			return out[i].Name < out[j].Name
+		}
+		return out[i].RemoteAddr < out[j].RemoteAddr
+	})
 	return out
 }
 
@@ -159,6 +195,23 @@ func main() {
 	}
 	log.Info("AutoMigrate complete")
 
+	// Inherit PLMN from HSS config into 5G NF configs if not explicitly set.
+	// This ensures NRF registration advertises the correct home PLMN so that
+	// the AUSF can discover our UDM by PLMN (otherwise the NRF defaults to its
+	// own PLMN and returns 504 "No SEPP" when the AUSF queries for our PLMN).
+	if cfg.UDM.MCC == "" {
+		cfg.UDM.MCC = cfg.HSS.MCC
+	}
+	if cfg.UDM.MNC == "" {
+		cfg.UDM.MNC = cfg.HSS.MNC
+	}
+	if cfg.PCF.MCC == "" {
+		cfg.PCF.MCC = cfg.HSS.MCC
+	}
+	if cfg.PCF.MNC == "" {
+		cfg.PCF.MNC = cfg.HSS.MNC
+	}
+
 	store := pgstore.New(db, cfg.EIR.NoMatchResponse)
 
 	// Load the Type Allocation Code (IMEI device database) into memory if enabled.
@@ -208,7 +261,7 @@ func main() {
 		srv.WithGeored(georedMgr)
 	}
 
-	errCh := make(chan error, 2)
+	errCh := make(chan error, 5)
 	go func() { errCh <- srv.Start() }()
 
 	var gsupSrv *gsup.Server
@@ -224,13 +277,34 @@ func main() {
 		udmSrv = udm.New(cfg.UDM, store, log)
 	}
 
+	var pcfSrv *pcf.Server
+	if cfg.PCF.Enabled {
+		pcfSrv = pcf.New(cfg.PCF, store, log)
+	}
+
+	var fivegcSrv *fivegc.Server
+	if udmSrv != nil && pcfSrv != nil && fivegc.Compatible(cfg.UDM, cfg.PCF) {
+		fivegcSrv = fivegc.New(udmSrv, pcfSrv, log)
+	}
+
 	if cfg.API.Enabled {
 		apiSrv := api.New(db, cfg.API, log).WithCLR(srv).WithCache(store).WithPeers(&peerListAdapter{srv.Peers()}).WithAuthFailures(&authFailureAdapter{srv})
 		if gsupSrv != nil {
 			apiSrv.WithGSUPPeers(&servicePeerListAdapter{gsupSrv.Peers()})
 		}
+		var sbiTrackers []*peertracker.Tracker
 		if udmSrv != nil {
-			apiSrv.WithSBIPeers(&servicePeerListAdapter{udmSrv.Peers()})
+			sbiTrackers = append(sbiTrackers, udmSrv.Peers())
+			sbiTrackers = append(sbiTrackers, udmSrv.ForwardedPeers())
+		}
+		if pcfSrv != nil {
+			sbiTrackers = append(sbiTrackers, pcfSrv.Peers())
+			sbiTrackers = append(sbiTrackers, pcfSrv.ForwardedPeers())
+		}
+		if len(sbiTrackers) == 1 {
+			apiSrv.WithSBIPeers(&servicePeerListAdapter{sbiTrackers[0]})
+		} else if len(sbiTrackers) > 1 {
+			apiSrv.WithSBIPeers(&multiServicePeerListAdapter{trackers: sbiTrackers})
 		}
 		if tacCache != nil {
 			apiSrv.WithTAC(tacCache)
@@ -245,8 +319,15 @@ func main() {
 		go func() { errCh <- gsupSrv.Start() }()
 	}
 
-	if cfg.UDM.Enabled {
-		go func() { errCh <- udmSrv.Start() }()
+	if fivegcSrv != nil {
+		go func() { errCh <- fivegcSrv.Start() }()
+	} else {
+		if cfg.UDM.Enabled {
+			go func() { errCh <- udmSrv.Start() }()
+		}
+		if cfg.PCF.Enabled {
+			go func() { errCh <- pcfSrv.Start() }()
+		}
 	}
 
 	readyFields := []zap.Field{
@@ -256,8 +337,17 @@ func main() {
 	if cfg.GSUP.Enabled {
 		readyFields = append(readyFields, zap.String("gsup", fmt.Sprintf("%s:%d", cfg.GSUP.BindAddress, cfg.GSUP.BindPort)))
 	}
-	if cfg.UDM.Enabled {
-		readyFields = append(readyFields, zap.String("udm", fmt.Sprintf("%s:%d", cfg.UDM.BindAddress, cfg.UDM.BindPort)))
+	if fivegcSrv != nil {
+		readyFields = append(readyFields, zap.String("5gc_sbi", fmt.Sprintf("%s:%d", cfg.UDM.BindAddress, cfg.UDM.BindPort)))
+		readyFields = append(readyFields, zap.String("udm", "enabled"))
+		readyFields = append(readyFields, zap.String("pcf", "enabled"))
+	} else {
+		if cfg.UDM.Enabled {
+			readyFields = append(readyFields, zap.String("udm", fmt.Sprintf("%s:%d", cfg.UDM.BindAddress, cfg.UDM.BindPort)))
+		}
+		if cfg.PCF.Enabled {
+			readyFields = append(readyFields, zap.String("pcf", fmt.Sprintf("%s:%d", cfg.PCF.BindAddress, cfg.PCF.BindPort)))
+		}
 	}
 	log.Info("VectorCore HSS ready", readyFields...)
 
