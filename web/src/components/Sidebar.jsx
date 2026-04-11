@@ -22,7 +22,7 @@ export default function Sidebar({ onOpenWizard }) {
         <div className="sidebar-logo">VectorCore</div>
         <div className="sidebar-logo-sub">Home Subscriber Server</div>
         <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: 2, letterSpacing: '0.04em' }}>
-          HLR / HSS / PCRF / UDM-UDR
+          HLR HSS PCRF UDM UDR PCF
         </div>
       </div>
 

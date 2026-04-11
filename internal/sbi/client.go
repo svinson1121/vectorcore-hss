@@ -23,8 +23,9 @@ const (
 
 // Client wraps outbound SBI HTTP behavior and centralizes route selection.
 type Client struct {
-	cfg        config.SBIClientConfig
-	httpClient *http.Client
+	cfg             config.SBIClientConfig
+	httpClientH2C   *http.Client
+	httpClientHTTPS *http.Client
 }
 
 type RequestOptions struct {
@@ -41,12 +42,13 @@ func NewClient(cfg config.SBIClientConfig) *Client {
 	}
 	cfg.Mode = mode
 	return &Client{
-		cfg:        cfg,
-		httpClient: newHTTP2Client(),
+		cfg:             cfg,
+		httpClientH2C:   newH2CClient(),
+		httpClientHTTPS: newHTTPSClient(),
 	}
 }
 
-func (c *Client) HTTPClient() *http.Client { return c.httpClient }
+func (c *Client) HTTPClient() *http.Client { return c.httpClientH2C }
 
 func (c *Client) NewRequest(ctx context.Context, method, targetURL string, body io.Reader) (*http.Request, error) {
 	return c.NewRequestWithOptions(ctx, method, targetURL, body, RequestOptions{})
@@ -72,14 +74,34 @@ func (c *Client) NewRequestWithOptions(ctx context.Context, method, targetURL st
 }
 
 func (c *Client) Do(req *http.Request) (*http.Response, error) {
-	return c.httpClient.Do(req)
+	if req == nil || req.URL == nil {
+		return nil, fmt.Errorf("sbi: nil request")
+	}
+	switch strings.ToLower(req.URL.Scheme) {
+	case "https":
+		return c.httpClientHTTPS.Do(req)
+	case "", "http":
+		return c.httpClientH2C.Do(req)
+	default:
+		return nil, fmt.Errorf("sbi: unsupported URL scheme %q", req.URL.Scheme)
+	}
 }
 
-func newHTTP2Client() *http.Client {
+func newH2CClient() *http.Client {
 	tr := &http2.Transport{
 		AllowHTTP: true,
 		DialTLSContext: func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) {
-			return net.Dial(network, addr)
+			var d net.Dialer
+			return d.DialContext(ctx, network, addr)
+		},
+	}
+	return &http.Client{Transport: tr, Timeout: 10 * time.Second}
+}
+
+func newHTTPSClient() *http.Client {
+	tr := &http2.Transport{
+		TLSClientConfig: &tls.Config{
+			MinVersion: tls.VersionTLS12,
 		},
 	}
 	return &http.Client{Transport: tr, Timeout: 10 * time.Second}

@@ -123,7 +123,11 @@ func (s *Server) connState(transport string) func(net.Conn, http.ConnState) {
 		remote := conn.RemoteAddr().String()
 		switch state {
 		case http.StateNew, http.StateActive, http.StateIdle:
-			s.Peers().Add(peertracker.Peer{Name: remote, RemoteAddr: remote, Transport: transport})
+			s.Peers().Add(peertracker.Peer{
+				Name:       sbi.PeerDisplayName(remote, s.cfg.SBIClient.SCPAddress),
+				RemoteAddr: remote,
+				Transport:  transport,
+			})
 		case http.StateHijacked, http.StateClosed:
 			s.Peers().Remove(remote)
 		}

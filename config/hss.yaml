@@ -88,6 +88,8 @@ gsup:
     client:
       mode: direct
       scp_address: ""
+      # Fixed delay between NRF registration retry attempts.
+      reconnect_holdoff_time: 2s
 
   udm:
     enabled: false

@@ -23,15 +23,24 @@ gsup:
   sbi:
     bind_address: "::"
     bind_port: 7777
+    # tls_cert_file: /etc/hss/tls/5gc.crt
+    # tls_key_file:  /etc/hss/tls/5gc.key
     oauth2_enabled: false
     oauth2_bypass: true
+    client:
+      mode: direct
+      scp_address: ""
   udm:
     enabled: false
+    mcc: "311"
+    mnc: "435"
     nrf_address: ""
     nf_instance_id: ""
     suci_decryption_keys: []
   pcf:
     enabled: false
+    mcc: "311"
+    mnc: "435"
     nrf_address: ""
     nf_instance_id: ""
 
@@ -179,18 +188,20 @@ No separate config section is required. S6c is automatically active when the Dia
 
 ---
 
-## 5G UDR/UDM Interface
+## 5G UDR/UDM/PCF Interface
 
-VectorCore HSS includes a 5G **UDR/UDM** server that implements the 3GPP **Nudm** SBI (Service Based Interface) used by Open5GS **AUSF**, **AMF**, and **SMF**. VectorCore acts as both the UDM (application logic) and UDR (data repository) in a single process — there is no separate UDR service; it goes directly to the same PostgreSQL database as the 4G HSS.
+VectorCore HSS includes 5G **UDM, UDR, and PCF** services on the SBI (Service Based Interface). UDM and PCF can share a single HTTP/2 listener while still registering as separate NF types in NRF. VectorCore acts as both the UDM (application logic) and UDR (data repository) in a single process — there is no separate UDR service; it goes directly to the same PostgreSQL database as the 4G HSS.
 
 ### Use cases
 - **5G-AKA authentication** — AUSF calls `nudm-ueau` to get auth vectors for 5G SA registration
 - **Subscription data** — AMF/SMF fetch AMBR, NSSAI, and DNN configs via `nudm-sdm`
 - **UE context management** — AMF/SMF register/deregister serving nodes via `nudm-uecm`
+- **Policy control** — AMF and SMF call `npcf-am-policy-control` and `npcf-smpolicycontrol` for AM and session policy decisions
 
 ### Protocol
 - Transport: **HTTP/2** (h2c cleartext for lab, TLS+h2 for production)
 - Default port: **7777**
+- Shared listener: UDM and PCF can run on the same `5gc.sbi.bind_address:bind_port`
 - URL prefix: `/nudm-{ueau,sdm,uecm}/v{1,2}/{supi}/...`
 - SUPI format: `imsi-{15digits}` or SUCI null-scheme `suci-0-{MCC}-{MNC}-0-0-0-{MSIN}`
 
@@ -203,6 +214,8 @@ VectorCore HSS includes a 5G **UDR/UDM** server that implements the 3GPP **Nudm*
 | N10 | nudm-sdm  | `/nudm-sdm/v{1,2}/{supi}`  | SMF | SM-data, SMF-select-data |
 | N8/N10 | nudm-uecm | `/nudm-uecm/v1/{supi}` | AMF, SMF | Register/deregister serving AMF and PDU sessions |
 | N36 | nudr-dr   | `/nudr-dr/v{1,2}/policy-data/ues/{ueId}` | PCF | AM policy data, SM policy data, UE policy set, SMS management |
+| N7 | npcf-am-policy-control | `/npcf-am-policy-control/v1/policies` | AMF | AM policy create/update/delete |
+| N7 | npcf-smpolicycontrol | `/npcf-smpolicycontrol/v1/sm-policies` | SMF | SM policy create/update/delete |
 
 ### 5G-AKA key derivation
 
@@ -265,11 +278,11 @@ Data sources — all derived from existing tables, no new DB columns required:
 
 ### NRF registration
 
-When `nrf_address` is set VectorCore registers all Nudm + nudr-dr service instances with the NRF at startup using `PUT /nnrf-nfm/v1/nf-instances/{nf_instance_id}` and maintains a heartbeat `PATCH` every 60 s. `AllowedNfTypes` includes `PCF` and `NEF` so the PCF can discover the UDR endpoint. The `nf_instance_id` is auto-generated (UUID v4) if left blank in config.
+When `nrf_address` is set VectorCore registers the enabled UDM and PCF instances with the NRF at startup using `PUT /nnrf-nfm/v1/nf-instances/{nf_instance_id}` and maintains a heartbeat `PATCH` every 60 s. The `nf_instance_id` is auto-generated (UUID v4) if left blank in config.
 
 ### OAuth2
 
-When `oauth2_enabled: true` the UDM validates the `Authorization: Bearer <JWT>` header on every request. The JWKS is fetched from the NRF at startup and cached. Set `oauth2_bypass: true` to skip validation in lab deployments.
+When `oauth2_enabled: true` the UDM and PCF validate the `Authorization: Bearer <JWT>` header on inbound SBI requests. The JWKS is fetched from the NRF at startup and cached. Set `oauth2_bypass: true` to skip validation in lab deployments. If `5gc.sbi.client.mode: scp` is used, set `5gc.sbi.client.scp_address` to the absolute SCP API root.
 
 ### PDU session state (OAM read-only)
 
@@ -287,8 +300,14 @@ GET /api/v1/oam/pdu_session/imsi/{imsi}
   sbi:
     bind_address: "::"
     bind_port: 7777
+    client:
+      mode: direct
+      scp_address: ""
     oauth2_bypass: true
   udm:
+    enabled: true
+    nrf_address: "http://127.0.0.5:7777"
+  pcf:
     enabled: true
     nrf_address: "http://127.0.0.5:7777"
 ```
@@ -490,7 +509,7 @@ Lightweight liveness probe. Returns 200 whenever the API is reachable. Use this 
 {
   "status": "ok",
   "uptime_seconds": 3600.5,
-  "version": "0.0.1a"
+  "version": "0.3.0B"
 }
 ```
 
@@ -519,7 +538,7 @@ Returns the running binary version and the REST API contract version. Use this t
 ```json
 {
   "app_name": "VectorCore HSS",
-  "app_version": "0.0.1a",
+  "app_version": "0.3.0B",
   "api_version": "1.0.0"
 }
 ```
@@ -527,7 +546,7 @@ Returns the running binary version and the REST API contract version. Use this t
 | Field | Description |
 |-------|-------------|
 | `app_name` | Application name  -- always `"VectorCore HSS"` |
-| `app_version` | Binary release version. Set at build time via `-ldflags "-X .../version.AppVersion=x.y.z"`. Defaults to `0.0.1a` if not overridden. |
+| `app_version` | Binary release version. Set at build time via `-ldflags "-X .../version.AppVersion=x.y.z"`. Defaults to `0.3.0B` if not overridden. |
 | `api_version` | REST API contract version. Incremented manually when the API surface changes (new endpoints, removed fields, changed behaviour). |
 
 ```bash
@@ -576,6 +595,50 @@ Returns a list of Diameter peers that are **directly connected** to this HSS nod
 
 ```bash
 curl http://localhost:8080/api/v1/oam/diameter/peers
+```
+
+---
+
+### GSUP Peers
+
+```
+GET /api/v1/oam/gsup/peers
+```
+
+Returns the currently connected GSUP peers. Each entry represents one live IPA/GSUP TCP connection.
+
+**Response fields:**
+
+| Field | Description |
+|-------|-------------|
+| `name` | Peer name when identified, otherwise the remote address |
+| `remote_addr` | Remote socket address (`host:port`) |
+| `transport` | Transport protocol, currently `tcp` |
+
+```bash
+curl http://localhost:8080/api/v1/oam/gsup/peers
+```
+
+---
+
+### SBI Peers
+
+```
+GET /api/v1/oam/sbi/peers
+```
+
+Returns currently connected SBI peers and forwarded SBI peer metadata. Known peers such as `NRF` and `SCP` are labeled when their addresses are configured; other direct connections fall back to the remote socket address.
+
+**Response fields:**
+
+| Field | Description |
+|-------|-------------|
+| `name` | Peer name or label when known |
+| `remote_addr` | Remote socket address (`host:port`) |
+| `transport` | Transport in use, for example `h2c`, `https/h2`, or `h2c via scp` |
+
+```bash
+curl http://localhost:8080/api/v1/oam/sbi/peers
 ```
 
 ---
@@ -1797,6 +1860,9 @@ curl -s -X POST $BASE/subscriber \
 | GET | `/api/v1/oam/pdu_session` | List all active 5G PDU sessions (read-only) |
 | GET | `/api/v1/oam/pdu_session/imsi/{imsi}` | List 5G PDU sessions for a specific IMSI |
 | GET | `/api/v1/oam/emergency_subscriber` | List active emergency sessions (read-only) |
+| GET | `/api/v1/oam/diameter/peers` | List connected Diameter peers |
+| GET | `/api/v1/oam/gsup/peers` | List connected GSUP peers |
+| GET | `/api/v1/oam/sbi/peers` | List connected and forwarded SBI peers |
 | GET | `/nudm-ueau/v{1,2}/{supi}/security-information/generate-auth-data` | **5G N13** — AUSF: generate 5G-AKA vectors |
 | POST | `/nudm-ueau/v{1,2}/{supi}/auth-events` | **5G N13** — AUSF: auth event notification |
 | GET | `/nudm-sdm/v{1,2}/{supi}/am-data` | **5G N8** — AMF: AM subscription data |
@@ -1815,9 +1881,10 @@ curl -s -X POST $BASE/subscriber \
 | GET | `/nudr-dr/v{1,2}/policy-data/ues/{ueId}/sm-data` | **5G N36** — PCF: SM policy data |
 | GET | `/nudr-dr/v{1,2}/policy-data/ues/{ueId}/ue-policy-set` | **5G N36** — PCF: UE policy set |
 | GET | `/nudr-dr/v{1,2}/policy-data/sms-management-data/{ueId}` | **5G N36** — PCF: SMS management flags |
+| POST | `/npcf-am-policy-control/v1/policies` | **5G N7** — AMF: create AM policy association |
+| POST | `/npcf-smpolicycontrol/v1/sm-policies` | **5G N7** — SMF: create SM policy association |
 | GET | `/health` | UDM/UDR liveness probe |
 | GET | `/api/v1/oam/emergency_subscriber/{id}` | Get emergency session by ID |
-| GET | `/api/v1/oam/diameter/peers` | List Diameter peers |
 | GET | `/api/v1/oam/backup` | Export full database backup (JSON download) |
 | POST | `/api/v1/oam/restore` | Import database backup (wipe + restore) |
 | GET | `/api/v1/apn` | List APNs |

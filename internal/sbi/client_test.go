@@ -3,6 +3,7 @@ package sbi
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -159,5 +160,39 @@ func TestDoHTTP2SCPModeCarriesUserAgentAndDiscoveryHeaders(t *testing.T) {
 	}
 	if gotService != "nnrf-nfm" {
 		t.Fatalf("wire service names: got %q", gotService)
+	}
+}
+
+func TestDoHTTPSCarriesUserAgentHeader(t *testing.T) {
+	var gotUserAgent string
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotUserAgent = r.Header.Get("User-Agent")
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	srv.EnableHTTP2 = true
+	srv.StartTLS()
+	defer srv.Close()
+
+	client := NewClient(config.SBIClientConfig{Mode: RoutingModeDirect})
+	client.httpClientHTTPS.Transport.(*http2.Transport).TLSClientConfig = &tls.Config{
+		MinVersion:         tls.VersionTLS12,
+		InsecureSkipVerify: true,
+	}
+
+	req, err := client.NewRequestWithOptions(context.Background(), http.MethodGet, srv.URL+"/nnrf-nfm/v1/nf-instances", nil, RequestOptions{
+		RequesterNFType:       "UDM",
+		RequesterNFInstanceID: "udm-1",
+	})
+	if err != nil {
+		t.Fatalf("NewRequestWithOptions: %v", err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	resp.Body.Close()
+
+	if gotUserAgent != "UDM-udm-1" {
+		t.Fatalf("wire User-Agent: got %q", gotUserAgent)
 	}
 }

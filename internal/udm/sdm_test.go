@@ -17,6 +17,7 @@ import (
 	"github.com/svinson1121/vectorcore-hss/internal/config"
 	"github.com/svinson1121/vectorcore-hss/internal/models"
 	pgstore "github.com/svinson1121/vectorcore-hss/internal/repository/postgres"
+	"github.com/svinson1121/vectorcore-hss/internal/taccache"
 )
 
 func TestHandleSMDataMatchesNormalizedDNN(t *testing.T) {
@@ -91,6 +92,41 @@ func TestHandleSMFSelectDataUsesOpen5GSSNSSAIMapKeys(t *testing.T) {
 		if strings.Contains(key, "{") {
 			t.Fatalf("unexpected JSON-formatted S-NSSAI key %q", key)
 		}
+	}
+}
+
+func TestHandleAMFRegistrationPutStoresPEIHistory(t *testing.T) {
+	s, db := newTestUDMServer(t)
+	s.WithEIR(2, true)
+	tac := taccache.New()
+	tac.Set("35617506", "Apple", "iPhone 15")
+	s.WithTAC(tac)
+
+	r := chi.NewRouter()
+	r.Put("/nudm-uecm/v1/{supi}/registrations/amf-3gpp-access", s.handleAMFRegistrationPut)
+
+	body := `{"amfInstanceId":"amf-1","pei":"imeisv-3561750601234567"}`
+	req := httptest.NewRequest(http.MethodPut, "/nudm-uecm/v1/imsi-001010000000001/registrations/amf-3gpp-access", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status: got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var hist models.IMSIIMEIHistory
+	if err := db.Where("imsi = ?", "001010000000001").First(&hist).Error; err != nil {
+		t.Fatalf("expected eir history row: %v", err)
+	}
+	if hist.IMEI != "3561750601234567" {
+		t.Fatalf("unexpected imei %q", hist.IMEI)
+	}
+	if hist.Make != "Apple" || hist.Model != "iPhone 15" {
+		t.Fatalf("unexpected device info: %+v", hist)
+	}
+	if hist.MatchResponseCode != 2 {
+		t.Fatalf("unexpected match response code %d", hist.MatchResponseCode)
 	}
 }
 

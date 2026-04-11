@@ -24,6 +24,7 @@ type Server struct {
 	bindPort    int
 	tlsCertFile string
 	tlsKeyFile  string
+	scpAddress  string
 	log         *zap.Logger
 	udm         *udm.Server
 	pcf         *pcf.Server
@@ -45,6 +46,7 @@ func New(udmSrv *udm.Server, pcfSrv *pcf.Server, log *zap.Logger) *Server {
 		s.bindPort = udmCfg.BindPort
 		s.tlsCertFile = udmCfg.TLSCertFile
 		s.tlsKeyFile = udmCfg.TLSKeyFile
+		s.scpAddress = udmCfg.SBIClient.SCPAddress
 		udmSrv.UsePeerTrackers(s.pt, s.fpt)
 	}
 	if pcfSrv != nil {
@@ -54,6 +56,9 @@ func New(udmSrv *udm.Server, pcfSrv *pcf.Server, log *zap.Logger) *Server {
 			s.bindPort = pcfCfg.BindPort
 			s.tlsCertFile = pcfCfg.TLSCertFile
 			s.tlsKeyFile = pcfCfg.TLSKeyFile
+		}
+		if s.scpAddress == "" {
+			s.scpAddress = pcfCfg.SBIClient.SCPAddress
 		}
 		pcfSrv.UsePeerTrackers(s.pt, s.fpt)
 	}
@@ -117,7 +122,11 @@ func (s *Server) connState(transport string) func(net.Conn, http.ConnState) {
 		remote := conn.RemoteAddr().String()
 		switch state {
 		case http.StateNew, http.StateActive, http.StateIdle:
-			s.pt.Add(peertracker.Peer{Name: remote, RemoteAddr: remote, Transport: transport})
+			s.pt.Add(peertracker.Peer{
+				Name:       sbi.PeerDisplayName(remote, s.scpAddress),
+				RemoteAddr: remote,
+				Transport:  transport,
+			})
 		case http.StateHijacked, http.StateClosed:
 			s.pt.Remove(remote)
 		}

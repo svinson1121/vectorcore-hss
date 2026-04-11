@@ -13,7 +13,9 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -32,6 +34,7 @@ type amfRegistration struct {
 	RATType          string `json:"ratType,omitempty"`
 	IMSVoPS3GPP      bool   `json:"imsVoPs3gpp,omitempty"`
 	DeregCallbackURI string `json:"deregCallbackUri,omitempty"`
+	PEI              string `json:"pei,omitempty"`
 }
 
 type guami struct {
@@ -80,6 +83,7 @@ func (s *Server) handleAMFRegistrationPut(w http.ResponseWriter, r *http.Request
 		jsonError(w, http.StatusInternalServerError, "db_error")
 		return
 	}
+	s.maybeRecordPEI(ctx, imsi, reg.PEI, metaFields)
 
 	s.log.Info("udm: AMF registered", append(metaFields, zap.String("imsi", imsi), zap.String("amf", amfAddr))...)
 	w.WriteHeader(http.StatusCreated)
@@ -280,4 +284,108 @@ func canonicalPLMN(raw json.RawMessage) string {
 		return plmn.MNC
 	}
 	return canonicalJSON(raw)
+}
+
+func (s *Server) maybeRecordPEI(ctx context.Context, imsi, pei string, metaFields []zap.Field) {
+	if !s.eirIMSIIMEILog {
+		return
+	}
+	imei := normalizePEI(pei)
+	if imsi == "" || imei == "" {
+		return
+	}
+
+	status, err := s.checkEIR(ctx, imei, imsi)
+	if err != nil {
+		s.log.Warn("udm: pei EIR check failed", append(metaFields,
+			zap.String("imsi", imsi),
+			zap.String("pei", pei),
+			zap.Error(err),
+		)...)
+		status = s.eirNoMatchResp
+	}
+
+	devMake, devModel := "", ""
+	if s.tac != nil {
+		if make, model, found := s.tac.Lookup(imei); found {
+			devMake, devModel = make, model
+		} else {
+			devMake, devModel = "Unknown", "Unknown"
+		}
+	}
+
+	if err := s.store.UpsertIMSIIMEIHistory(ctx, imsi, imei, devMake, devModel, status); err != nil {
+		s.log.Warn("udm: pei history write failed", append(metaFields,
+			zap.String("imsi", imsi),
+			zap.String("pei", pei),
+			zap.Error(err),
+		)...)
+	}
+}
+
+func (s *Server) checkEIR(ctx context.Context, imei, imsi string) (int, error) {
+	var entries []models.EIR
+	if err := s.store.ListEIR(ctx, &entries); err != nil {
+		return s.eirNoMatchResp, err
+	}
+
+	for _, e := range entries {
+		eIMEI := ""
+		eIMSI := ""
+		if e.IMEI != nil {
+			eIMEI = *e.IMEI
+		}
+		if e.IMSI != nil {
+			eIMSI = *e.IMSI
+		}
+
+		matched := false
+		if e.RegexMode == 1 {
+			if eIMEI != "" && imei != "" {
+				if ok, _ := regexp.MatchString(eIMEI, imei); ok {
+					matched = true
+				}
+			}
+		} else {
+			imeiMatch := eIMEI == "" || eIMEI == imei
+			imsiMatch := eIMSI == "" || eIMSI == imsi
+			matched = imeiMatch && imsiMatch && (eIMEI != "" || eIMSI != "")
+		}
+
+		if matched {
+			return e.MatchResponseCode, nil
+		}
+	}
+
+	return s.eirNoMatchResp, nil
+}
+
+func normalizePEI(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+
+	lower := strings.ToLower(raw)
+	switch {
+	case strings.HasPrefix(lower, "imeisv-"):
+		raw = raw[len("imeisv-"):]
+	case strings.HasPrefix(lower, "imei-"):
+		raw = raw[len("imei-"):]
+	case strings.HasPrefix(lower, "pei-"):
+		raw = raw[len("pei-"):]
+	}
+
+	var digits strings.Builder
+	digits.Grow(len(raw))
+	for _, r := range raw {
+		if r >= '0' && r <= '9' {
+			digits.WriteRune(r)
+		}
+	}
+
+	if digits.Len() < 14 {
+		return ""
+	}
+	return digits.String()
 }

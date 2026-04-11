@@ -31,6 +31,7 @@ import (
 	"github.com/svinson1121/vectorcore-hss/internal/peertracker"
 	"github.com/svinson1121/vectorcore-hss/internal/repository"
 	"github.com/svinson1121/vectorcore-hss/internal/sbi"
+	"github.com/svinson1121/vectorcore-hss/internal/taccache"
 )
 
 // Server is the UDR/UDM HTTP/2 server.
@@ -42,6 +43,10 @@ type Server struct {
 	hnet  *HNetKeyStore
 	pt    *peertracker.Tracker
 	fpt   *peertracker.Tracker
+	tac   *taccache.Cache
+
+	eirNoMatchResp int
+	eirIMSIIMEILog bool
 }
 
 // New creates a new UDM server.
@@ -79,6 +84,17 @@ func (s *Server) UsePeerTrackers(pt, fpt *peertracker.Tracker) {
 
 func (s *Server) Config() config.UDMConfig {
 	return s.cfg
+}
+
+func (s *Server) WithTAC(c *taccache.Cache) *Server {
+	s.tac = c
+	return s
+}
+
+func (s *Server) WithEIR(noMatchResp int, imsiIMEILog bool) *Server {
+	s.eirNoMatchResp = noMatchResp
+	s.eirIMSIIMEILog = imsiIMEILog
+	return s
 }
 
 func (s *Server) MountRoutes(r *chi.Mux) {
@@ -147,7 +163,11 @@ func (s *Server) connState(transport string) func(net.Conn, http.ConnState) {
 		remote := conn.RemoteAddr().String()
 		switch state {
 		case http.StateNew, http.StateActive, http.StateIdle:
-			s.Peers().Add(peertracker.Peer{Name: remote, RemoteAddr: remote, Transport: transport})
+			s.Peers().Add(peertracker.Peer{
+				Name:       sbi.PeerDisplayName(remote, s.cfg.SBIClient.SCPAddress),
+				RemoteAddr: remote,
+				Transport:  transport,
+			})
 		case http.StateHijacked, http.StateClosed:
 			s.Peers().Remove(remote)
 		}

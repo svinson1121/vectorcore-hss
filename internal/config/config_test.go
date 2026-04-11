@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestLoadNormalizesFiveGCConfig(t *testing.T) {
@@ -23,6 +24,7 @@ database:
     client:
       mode: scp
       scp_address: "http://127.0.0.200:7777/nscp-proxy/v1"
+      reconnect_holdoff_time: 5s
   udm:
     enabled: true
     mcc: "311"
@@ -58,8 +60,33 @@ database:
 	if cfg.PCF.SBIClient.Mode != "scp" {
 		t.Fatalf("expected shared SBI client mode on PCF, got %+v", cfg.PCF.SBIClient)
 	}
+	if cfg.UDM.SBIClient.ReconnectHoldoffTime != 5*time.Second || cfg.PCF.SBIClient.ReconnectHoldoffTime != 5*time.Second {
+		t.Fatalf("expected shared reconnect holdoff on UDM/PCF, got %v %v", cfg.UDM.SBIClient.ReconnectHoldoffTime, cfg.PCF.SBIClient.ReconnectHoldoffTime)
+	}
 	if len(cfg.UDM.SUCIDecryptionKeys) != 1 {
 		t.Fatalf("expected SUCI decryption keys to normalize, got %+v", cfg.UDM.SUCIDecryptionKeys)
+	}
+}
+
+func TestLoadDefaultsReconnectHoldoff(t *testing.T) {
+	cfgText := `
+hss:
+  OriginHost: hss01.example.org
+  OriginRealm: example.org
+database:
+  db_type: sqlite
+  database: ":memory:"
+`
+	path := writeTestConfig(t, cfgText)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.UDM.SBIClient.ReconnectHoldoffTime != 2*time.Second {
+		t.Fatalf("expected default UDM reconnect holdoff 2s, got %v", cfg.UDM.SBIClient.ReconnectHoldoffTime)
+	}
+	if cfg.PCF.SBIClient.ReconnectHoldoffTime != 2*time.Second {
+		t.Fatalf("expected default PCF reconnect holdoff 2s, got %v", cfg.PCF.SBIClient.ReconnectHoldoffTime)
 	}
 }
 

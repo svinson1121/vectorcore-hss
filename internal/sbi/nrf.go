@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"time"
 
@@ -111,15 +112,15 @@ func (r *NRFRegistrar) Start() {
 		return
 	}
 
-	backoff := 2 * time.Second
+	holdoff := r.client.cfg.ReconnectHoldoffTime
+	if holdoff <= 0 {
+		holdoff = 2 * time.Second
+	}
 	for {
 		if err := r.Register(); err != nil {
 			r.log.Warn(fmt.Sprintf("%s: NRF registration failed, retrying", r.nfName),
-				zap.Error(err), zap.Duration("backoff", backoff))
-			time.Sleep(backoff)
-			if backoff < 60*time.Second {
-				backoff *= 2
-			}
+				zap.Error(err), zap.Duration("holdoff", holdoff))
+			time.Sleep(holdoff)
 			continue
 		}
 		r.log.Info(fmt.Sprintf("%s: registered with NRF", r.nfName),
@@ -170,31 +171,45 @@ func (r *NRFRegistrar) Heartbeat() {
 	body, _ := json.Marshal(patch)
 	endpoint := fmt.Sprintf("%s/nnrf-nfm/v1/nf-instances/%s", r.nrfAddress, r.profile.NFInstanceID)
 	for range t.C {
-		req, err := r.client.NewRequestWithOptions(context.Background(), "PATCH", endpoint, bytes.NewReader(body), RequestOptions{
-			RequesterNFType:       r.profile.NFType,
-			RequesterNFInstanceID: r.profile.NFInstanceID,
-			TargetNFType:          "NRF",
-			TargetServiceName:     "nnrf-nfm",
-		})
-		if err != nil {
-			continue
-		}
-		req.Header.Set("Content-Type", "application/json-patch+json")
-		req.Header.Set("User-Agent", FormatRequesterUserAgent(r.profile.NFType, r.profile.NFInstanceID))
-		resp, err := r.client.Do(req)
-		if err != nil {
-			r.removePeer("NRF", r.nrfAddress)
-			r.log.Warn(fmt.Sprintf("%s: NRF heartbeat failed", r.nfName), zap.Error(err))
-			continue
-		}
-		resp.Body.Close()
-		if resp.StatusCode >= 400 {
-			r.removePeer("NRF", r.nrfAddress)
-			r.log.Warn(fmt.Sprintf("%s: NRF heartbeat returned error", r.nfName), zap.Int("status", resp.StatusCode))
-			continue
-		}
-		r.addPeer("NRF", r.nrfAddress)
+		r.heartbeatOnce(context.Background(), endpoint, body)
 	}
+}
+
+func (r *NRFRegistrar) heartbeatOnce(ctx context.Context, endpoint string, body []byte) {
+	req, err := r.client.NewRequestWithOptions(ctx, "PATCH", endpoint, bytes.NewReader(body), RequestOptions{
+		RequesterNFType:       r.profile.NFType,
+		RequesterNFInstanceID: r.profile.NFInstanceID,
+		TargetNFType:          "NRF",
+		TargetServiceName:     "nnrf-nfm",
+	})
+	if err != nil {
+		r.removePeer("NRF", r.nrfAddress)
+		r.log.Warn(fmt.Sprintf("%s: NRF heartbeat request build failed", r.nfName), zap.Error(err))
+		return
+	}
+	req.Header.Set("Content-Type", "application/json-patch+json")
+	req.Header.Set("User-Agent", FormatRequesterUserAgent(r.profile.NFType, r.profile.NFInstanceID))
+	resp, err := r.client.Do(req)
+	if err != nil {
+		r.removePeer("NRF", r.nrfAddress)
+		r.log.Warn(fmt.Sprintf("%s: NRF heartbeat failed", r.nfName), zap.Error(err))
+		return
+	}
+	resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		r.removePeer("NRF", r.nrfAddress)
+		r.log.Warn(fmt.Sprintf("%s: NRF heartbeat lost registration, re-registering", r.nfName))
+		if err := r.Register(); err != nil {
+			r.log.Warn(fmt.Sprintf("%s: NRF re-registration failed", r.nfName), zap.Error(err))
+		}
+		return
+	}
+	if resp.StatusCode >= 400 {
+		r.removePeer("NRF", r.nrfAddress)
+		r.log.Warn(fmt.Sprintf("%s: NRF heartbeat returned error", r.nfName), zap.Int("status", resp.StatusCode))
+		return
+	}
+	r.addPeer("NRF", r.nrfAddress)
 }
 
 func (r *NRFRegistrar) addPeer(name, rawURL string) {

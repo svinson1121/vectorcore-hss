@@ -11,7 +11,7 @@ package version
 import "time"
 
 // AppVersion is the binary release version. Overridden at build time.
-var AppVersion = "0.2.3A"
+var AppVersion = "0.3.0B"
 
 // APIVersion is the REST API contract version. Increment on breaking or
 // additive API changes so clients can detect incompatibilities.

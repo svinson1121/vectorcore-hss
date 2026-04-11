@@ -275,6 +275,10 @@ func main() {
 	var udmSrv *udm.Server
 	if cfg.UDM.Enabled {
 		udmSrv = udm.New(cfg.UDM, store, log)
+		udmSrv.WithEIR(cfg.EIR.NoMatchResponse, cfg.EIR.IMSIIMEILogging)
+		if tacCache != nil {
+			udmSrv.WithTAC(tacCache)
+		}
 	}
 
 	var pcfSrv *pcf.Server

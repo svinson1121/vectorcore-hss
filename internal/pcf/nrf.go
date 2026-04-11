@@ -64,7 +64,10 @@ func (s *Server) fetchJWKS(client *sbi.Client) {
 	}
 	raw, _ := io.ReadAll(resp.Body)
 	if len(raw) > 0 {
-		s.jwks.Set(raw)
+		if err := s.jwks.Set(raw); err != nil {
+			s.log.Warn("pcf: JWKS parse failed", zap.Error(err))
+			return
+		}
 		s.log.Info("pcf: JWKS cached from NRF")
 	}
 }

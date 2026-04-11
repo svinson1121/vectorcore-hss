@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -22,8 +23,9 @@ type Config struct {
 }
 
 type SBIClientConfig struct {
-	Mode       string `yaml:"mode"`
-	SCPAddress string `yaml:"scp_address"`
+	Mode                 string        `yaml:"mode"`
+	SCPAddress           string        `yaml:"scp_address"`
+	ReconnectHoldoffTime time.Duration `yaml:"reconnect_holdoff_time"`
 }
 
 type FiveGCSBIConfig struct {
@@ -105,13 +107,13 @@ type HNetKeyConfig struct {
 
 // PCFConfig controls the 5G PCF listener (Npcf SBI interfaces).
 type PCFConfig struct {
-	Enabled       bool            `yaml:"enabled"`
-	BindAddress   string          `yaml:"bind_address"`
-	BindPort      int             `yaml:"bind_port"`
+	Enabled     bool   `yaml:"enabled"`
+	BindAddress string `yaml:"bind_address"`
+	BindPort    int    `yaml:"bind_port"`
 	// MCC and MNC identify the home PLMN for NRF registration.
 	// If left empty they are inherited from hss.MCC / hss.MNC at startup.
-	MCC string `yaml:"mcc"`
-	MNC string `yaml:"mnc"`
+	MCC           string          `yaml:"mcc"`
+	MNC           string          `yaml:"mnc"`
 	NRFAddress    string          `yaml:"nrf_address"`
 	NFInstanceID  string          `yaml:"nf_instance_id"`
 	TLSCertFile   string          `yaml:"tls_cert_file"`
@@ -243,8 +245,8 @@ func Load(path string) (*Config, error) {
 		Roaming:  RoamingConfig{AllowUndefinedNetworks: true},
 		API:      APIConfig{Enabled: true, BindAddress: "0.0.0.0", BindPort: 8080},
 		GSUP:     GSUPConfig{Enabled: false, BindAddress: "::", BindPort: 4222},
-		UDM:      UDMConfig{Enabled: false, BindAddress: "::", BindPort: 7777, SBIClient: SBIClientConfig{Mode: "direct"}},
-		PCF:      PCFConfig{Enabled: false, BindAddress: "::", BindPort: 7778, SBIClient: SBIClientConfig{Mode: "direct"}},
+		UDM:      UDMConfig{Enabled: false, BindAddress: "::", BindPort: 7777, SBIClient: SBIClientConfig{Mode: "direct", ReconnectHoldoffTime: 2 * time.Second}},
+		PCF:      PCFConfig{Enabled: false, BindAddress: "::", BindPort: 7778, SBIClient: SBIClientConfig{Mode: "direct", ReconnectHoldoffTime: 2 * time.Second}},
 	}
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("config: parse: %w", err)
@@ -279,6 +281,15 @@ func normalizeFiveGC(cfg *Config) {
 	}
 	if cfg.FiveGC.SBI.Client.Mode == "" {
 		cfg.FiveGC.SBI.Client.Mode = "direct"
+	}
+	if cfg.FiveGC.SBI.Client.ReconnectHoldoffTime <= 0 {
+		cfg.FiveGC.SBI.Client.ReconnectHoldoffTime = 2 * time.Second
+	}
+	if cfg.UDM.SBIClient.ReconnectHoldoffTime <= 0 {
+		cfg.UDM.SBIClient.ReconnectHoldoffTime = 2 * time.Second
+	}
+	if cfg.PCF.SBIClient.ReconnectHoldoffTime <= 0 {
+		cfg.PCF.SBIClient.ReconnectHoldoffTime = 2 * time.Second
 	}
 
 	cfg.UDM.Enabled = cfg.FiveGC.UDM.Enabled
