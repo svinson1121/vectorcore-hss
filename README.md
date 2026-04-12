@@ -1,6 +1,6 @@
 # VectorCore HSS
 
-A high-performance Home Subscriber Server (HSS),PCRF,HLR,UDM,UDR and PCF  for 3GPP 2/3G  LTE/4G 5GC and IMS
+A high-performance Home Subscriber Server (HSS),PCRF,EIR,HLR,UDM,UDR and PCF  for 3GPP 2/3G  LTE/4G 5GC and IMS
 networks, written in Go.
 
 ---
