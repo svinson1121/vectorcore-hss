@@ -496,6 +496,28 @@ func requireServingNodeMMEName(t *testing.T, msg *diam.Message, mme string) {
 	t.Fatal("MME-Name AVP not found inside Serving-Node")
 }
 
+func requireServingNodeMMENumberForMTSMS(t *testing.T, msg *diam.Message, want string) {
+	t.Helper()
+	nodeAVP := findAVPDirect(msg, avpServingNode, Vendor3GPP)
+	if nodeAVP == nil {
+		t.Fatal("missing Serving-Node AVP")
+	}
+	grp, ok := nodeAVP.Data.(*diam.GroupedAVP)
+	if !ok {
+		t.Fatal("Serving-Node is not a grouped AVP")
+	}
+	for _, a := range grp.AVP {
+		if a.Code == avpMMENumberForMTSMS {
+			got := decodeMSISDN(a.Data.(datatype.OctetString))
+			if got != want {
+				t.Errorf("MME-Number-for-MT-SMS: got %q, want %q", got, want)
+			}
+			return
+		}
+	}
+	t.Fatal("MME-Number-for-MT-SMS AVP not found inside Serving-Node")
+}
+
 // requireMWDStatus asserts the MWD-Status AVP equals want.
 func requireMWDStatus(t *testing.T, msg *diam.Message, want uint32) {
 	t.Helper()
@@ -824,11 +846,13 @@ func TestSRISM_ServingMMERealm(t *testing.T) {
 	msisdn := "33699001122"
 	mmeName := "mme4.epc.mnc001.mcc001.3gppnetwork.org"
 	mmeRealm := "epc.mnc001.mcc001.3gppnetwork.org"
+	mmeNumberForMTSMS := "33611223344"
 	store.addSubscriber(&models.Subscriber{
 		IMSI:                "001010000000005",
 		MSISDN:              ptr(msisdn),
 		ServingMME:          ptr(mmeName),
 		ServingMMERealm:     ptr(mmeRealm),
+		MMENumberForMTSMS:   ptr(mmeNumberForMTSMS),
 		MMERegisteredForSMS: ptr(true),
 	})
 
@@ -839,6 +863,7 @@ func TestSRISM_ServingMMERealm(t *testing.T) {
 	}
 
 	requireResultCode(t, ans, 2001)
+	requireServingNodeMMENumberForMTSMS(t, ans, mmeNumberForMTSMS)
 
 	// Verify that the MME-Realm AVP appears inside Serving-Node.
 	nodeAVP := findAVPDirect(ans, avpServingNode, Vendor3GPP)

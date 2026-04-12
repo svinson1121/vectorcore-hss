@@ -16,11 +16,11 @@ const (
 	avpLMSI               = uint32(2400)
 	avpServingNode        = uint32(2401)
 	avpMMEName            = uint32(2402)
-	avpMMENumberForMTSMS  = uint32(2403)
 	avpAdditionalServing  = uint32(2406)
 	avpMMERealm           = uint32(2408)
 	avpSGSNName           = uint32(2409)
 	avpSGSNRealm          = uint32(2410)
+	avpMMENumberForMTSMS  = uint32(1645)
 
 	// S6c-specific AVP codes (TS 29.338 §7.3)
 	avpSCAddress                  = uint32(3300)

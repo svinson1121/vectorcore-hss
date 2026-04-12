@@ -65,6 +65,11 @@ func (h *Handlers) SRISR(conn diam.Conn, msg *diam.Message) (*diam.Message, erro
 		nodeAVPs = append(nodeAVPs,
 			diam.NewAVP(avpMMEName, avp.Mbit|avp.Vbit, Vendor3GPP,
 				datatype.DiameterIdentity(*sub.ServingMME)))
+		if sub.MMENumberForMTSMS != nil {
+			nodeAVPs = append(nodeAVPs,
+				diam.NewAVP(avpMMENumberForMTSMS, avp.Vbit, Vendor3GPP,
+					datatype.OctetString(encodeMSISDNBytes(*sub.MMENumberForMTSMS))))
+		}
 		if sub.ServingMMERealm != nil {
 			nodeAVPs = append(nodeAVPs,
 				diam.NewAVP(avpMMERealm, avp.Vbit, Vendor3GPP,
