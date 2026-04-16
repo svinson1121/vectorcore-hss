@@ -212,7 +212,49 @@ function SubscriberModal({ sub, onClose, onSaved, aucList, apnList }) {
 
   const [selectedApnIds, setSelectedApnIds] = useState(initialApnIds)
   const [apnPickerValue, setApnPickerValue] = useState('')
+  const [availableAucs, setAvailableAucs] = useState(aucList)
+  const [availableApns, setAvailableApns] = useState(apnList)
+  const [loadingAucs, setLoadingAucs] = useState(true)
+  const [loadingApns, setLoadingApns] = useState(true)
   const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    let active = true
+
+    async function loadAucs() {
+      setLoadingAucs(true)
+      try {
+        const data = await getAUCs()
+        if (active) setAvailableAucs(Array.isArray(data?.items) ? data.items : [])
+      } catch (err) {
+        if (active) {
+          setAvailableAucs(Array.isArray(aucList) ? aucList : [])
+          toast.error('SIM cards / AUC', err.message || 'Failed to load AUC entries')
+        }
+      } finally {
+        if (active) setLoadingAucs(false)
+      }
+    }
+
+    async function loadApns() {
+      setLoadingApns(true)
+      try {
+        const data = await getAPNs()
+        if (active) setAvailableApns(Array.isArray(data) ? data : [])
+      } catch (err) {
+        if (active) {
+          setAvailableApns(Array.isArray(apnList) ? apnList : [])
+          toast.error('APNs', err.message || 'Failed to load APNs')
+        }
+      } finally {
+        if (active) setLoadingApns(false)
+      }
+    }
+
+    loadAucs()
+    loadApns()
+    return () => { active = false }
+  }, [aucList, apnList, toast])
 
   function set(k, v) {
     setForm(prev => ({ ...prev, [k]: v }))
@@ -222,7 +264,7 @@ function SubscriberModal({ sub, onClose, onSaved, aucList, apnList }) {
     const aucId = e.target.value
     set('auc_id', aucId)
     if (aucId) {
-      const auc = aucList.find(a => String(a.auc_id) === aucId)
+      const auc = availableAucs.find(a => String(a.auc_id) === aucId)
       if (auc && auc.imsi) {
         set('imsi', auc.imsi)
       }
@@ -288,7 +330,7 @@ function SubscriberModal({ sub, onClose, onSaved, aucList, apnList }) {
   }
 
   const ard = Number(form.access_restriction_data) || 0
-  const availableApns = apnList.filter(a => !selectedApnIds.includes(String(a.apn_id)))
+  const selectableApns = availableApns.filter(a => !selectedApnIds.includes(String(a.apn_id)))
 
   return (
     <Modal title={isEdit ? 'Edit Subscriber' : 'Add Subscriber'} onClose={onClose} size="lg">
@@ -304,9 +346,10 @@ function SubscriberModal({ sub, onClose, onSaved, aucList, apnList }) {
                 value={form.auc_id}
                 onChange={handleAucChange}
                 required
+                disabled={loadingAucs}
               >
-                <option value="">— Select SIM Card —</option>
-                {aucList.map(a => (
+                <option value="">{loadingAucs ? 'Loading SIM Cards...' : '— Select SIM Card —'}</option>
+                {availableAucs.map(a => (
                   <option key={a.auc_id} value={String(a.auc_id)}>
                     {a.imsi} {a.iccid ? `[${a.iccid}]` : ''}
                   </option>
@@ -347,9 +390,10 @@ function SubscriberModal({ sub, onClose, onSaved, aucList, apnList }) {
                 value={apnPickerValue}
                 onChange={e => setApnPickerValue(e.target.value)}
                 style={{ flex: 1 }}
+                disabled={loadingApns}
               >
-                <option value="">— Add an APN —</option>
-                {availableApns.map(a => (
+                <option value="">{loadingApns ? 'Loading APNs...' : '— Add an APN —'}</option>
+                {selectableApns.map(a => (
                   <option key={a.apn_id} value={String(a.apn_id)}>{a.apn}</option>
                 ))}
               </select>
@@ -357,12 +401,12 @@ function SubscriberModal({ sub, onClose, onSaved, aucList, apnList }) {
                 type="button"
                 className="btn btn-ghost"
                 onClick={addApn}
-                disabled={!apnPickerValue}
+                disabled={loadingApns || !apnPickerValue}
               >
                 Add
               </button>
             </div>
-            <APNChips selectedIds={selectedApnIds} apnList={apnList} onRemove={removeApn} />
+            <APNChips selectedIds={selectedApnIds} apnList={availableApns} onRemove={removeApn} />
           </div>
           <div className="form-row">
             <div className="form-group">

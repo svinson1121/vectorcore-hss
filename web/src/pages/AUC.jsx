@@ -45,6 +45,8 @@ function AUCModal({ auc, onClose, onSaved, algorithmProfiles }) {
   const toast = useToast()
   const isEdit = !!auc
   const [showKeys, setShowKeys] = useState(!isEdit)
+  const [availableAlgorithmProfiles, setAvailableAlgorithmProfiles] = useState(algorithmProfiles)
+  const [loadingAlgorithmProfiles, setLoadingAlgorithmProfiles] = useState(true)
   const [form, setForm] = useState(auc ? {
     imsi: auc.imsi || '',
     iccid: auc.iccid || '',
@@ -62,6 +64,28 @@ function AUCModal({ auc, onClose, onSaved, algorithmProfiles }) {
     algorithm_profile_id: auc.algorithm_profile_id != null ? String(auc.algorithm_profile_id) : '',
   } : { ...EMPTY_FORM })
   const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    let active = true
+
+    async function loadAlgorithmProfiles() {
+      setLoadingAlgorithmProfiles(true)
+      try {
+        const data = await getAlgorithmProfiles()
+        if (active) setAvailableAlgorithmProfiles(Array.isArray(data) ? data : [])
+      } catch (err) {
+        if (active) {
+          setAvailableAlgorithmProfiles(Array.isArray(algorithmProfiles) ? algorithmProfiles : [])
+          toast.error('Algorithm profiles', err.message || 'Failed to load algorithm profiles')
+        }
+      } finally {
+        if (active) setLoadingAlgorithmProfiles(false)
+      }
+    }
+
+    loadAlgorithmProfiles()
+    return () => { active = false }
+  }, [algorithmProfiles, toast])
 
   function set(k, v) { setForm(prev => ({ ...prev, [k]: v })) }
 
@@ -155,9 +179,9 @@ function AUCModal({ auc, onClose, onSaved, algorithmProfiles }) {
           <div className="form-row">
             <div className="form-group">
               <label className="form-label">Algorithm Profile</label>
-              <select className="select" value={form.algorithm_profile_id} onChange={e => set('algorithm_profile_id', e.target.value)}>
+              <select className="select" value={form.algorithm_profile_id} onChange={e => set('algorithm_profile_id', e.target.value)} disabled={loadingAlgorithmProfiles}>
                 <option value="">Default (Standard Milenage)</option>
-                {(algorithmProfiles || []).map(p => (
+                {(availableAlgorithmProfiles || []).map(p => (
                   <option key={p.algorithm_profile_id} value={String(p.algorithm_profile_id)}>
                     {p.profile_name}
                   </option>

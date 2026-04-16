@@ -133,7 +133,31 @@ function APNModal({ apn, onClose, onSaved, chargingRules }) {
 
   const [selectedRuleIds, setSelectedRuleIds] = useState(initialRuleIds)
   const [rulePickerValue, setRulePickerValue] = useState('')
+  const [availableChargingRules, setAvailableChargingRules] = useState(chargingRules)
+  const [loadingChargingRules, setLoadingChargingRules] = useState(true)
   const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    let active = true
+
+    async function loadChargingRules() {
+      setLoadingChargingRules(true)
+      try {
+        const data = await getChargingRules()
+        if (active) setAvailableChargingRules(Array.isArray(data) ? data : [])
+      } catch (err) {
+        if (active) {
+          setAvailableChargingRules(Array.isArray(chargingRules) ? chargingRules : [])
+          toast.error('Charging rules', err.message || 'Failed to load charging rules')
+        }
+      } finally {
+        if (active) setLoadingChargingRules(false)
+      }
+    }
+
+    loadChargingRules()
+    return () => { active = false }
+  }, [chargingRules, toast])
 
   function set(k, v) {
     setForm(prev => ({ ...prev, [k]: v }))
@@ -182,7 +206,7 @@ function APNModal({ apn, onClose, onSaved, chargingRules }) {
     }
   }
 
-  const availableRules = chargingRules.filter(r => !selectedRuleIds.includes(String(r.charging_rule_id)))
+  const availableRules = availableChargingRules.filter(r => !selectedRuleIds.includes(String(r.charging_rule_id)))
 
   return (
     <Modal title={isEdit ? 'Edit APN' : 'Add APN'} onClose={onClose} size="lg">
@@ -269,8 +293,9 @@ function APNModal({ apn, onClose, onSaved, chargingRules }) {
                 value={rulePickerValue}
                 onChange={e => setRulePickerValue(e.target.value)}
                 style={{ flex: 1 }}
+                disabled={loadingChargingRules}
               >
-                <option value="">— Add a charging rule —</option>
+                <option value="">{loadingChargingRules ? 'Loading charging rules...' : '— Add a charging rule —'}</option>
                 {availableRules.map(r => (
                   <option key={r.charging_rule_id} value={String(r.charging_rule_id)}>{r.rule_name}</option>
                 ))}
@@ -279,12 +304,12 @@ function APNModal({ apn, onClose, onSaved, chargingRules }) {
                 type="button"
                 className="btn btn-ghost"
                 onClick={addRule}
-                disabled={!rulePickerValue}
+                disabled={loadingChargingRules || !rulePickerValue}
               >
                 Add
               </button>
             </div>
-            <ChargingRuleChips selectedIds={selectedRuleIds} ruleList={chargingRules} onRemove={removeRule} />
+            <ChargingRuleChips selectedIds={selectedRuleIds} ruleList={availableChargingRules} onRemove={removeRule} />
           </div>
 
           <div style={SECTION_STYLE}>NB-IoT</div>

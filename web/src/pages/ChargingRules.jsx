@@ -52,6 +52,8 @@ const EMPTY_RULE = {
 function ChargingRuleModal({ rule, onClose, onSaved, tfts = [] }) {
   const toast = useToast()
   const isEdit = !!rule
+  const [availableTfts, setAvailableTfts] = useState(tfts)
+  const [loadingTfts, setLoadingTfts] = useState(true)
   const [form, setForm] = useState(rule ? {
     rule_name: rule.rule_name || '',
     qci: rule.qci || 9,
@@ -68,8 +70,30 @@ function ChargingRuleModal({ rule, onClose, onSaved, tfts = [] }) {
   } : { ...EMPTY_RULE })
   const [saving, setSaving] = useState(false)
 
+  useEffect(() => {
+    let active = true
+
+    async function loadTfts() {
+      setLoadingTfts(true)
+      try {
+        const data = await getTFTs()
+        if (active) setAvailableTfts(Array.isArray(data) ? data : [])
+      } catch (err) {
+        if (active) {
+          setAvailableTfts(Array.isArray(tfts) ? tfts : [])
+          toast.error('TFT entries', err.message || 'Failed to load TFT entries')
+        }
+      } finally {
+        if (active) setLoadingTfts(false)
+      }
+    }
+
+    loadTfts()
+    return () => { active = false }
+  }, [tfts, toast])
+
   // Deduplicated, sorted list of Group IDs from existing TFT entries
-  const tftGroupIds = [...new Set(tfts.map(t => t.tft_group_id))].sort((a, b) => a - b)
+  const tftGroupIds = [...new Set(availableTfts.map(t => t.tft_group_id))].sort((a, b) => a - b)
 
   function set(k, v) {
     setForm(prev => ({ ...prev, [k]: v }))
@@ -173,7 +197,7 @@ function ChargingRuleModal({ rule, onClose, onSaved, tfts = [] }) {
             <div className="form-group">
               <label className="form-label">TFT Group ID</label>
               {tftGroupIds.length > 0 ? (
-                <select className="select" value={form.tft_group_id} onChange={e => set('tft_group_id', e.target.value)}>
+                <select className="select" value={form.tft_group_id} onChange={e => set('tft_group_id', e.target.value)} disabled={loadingTfts}>
                   <option value="">— None —</option>
                   {tftGroupIds.map(id => (
                     <option key={id} value={String(id)}>Group {id}</option>

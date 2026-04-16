@@ -10,12 +10,36 @@ import { getSubscriberAttributes, createSubscriberAttribute, updateSubscriberAtt
 function AttributeModal({ attr, onClose, onSaved, subscribers }) {
   const toast = useToast()
   const isEdit = !!attr
+  const [availableSubscribers, setAvailableSubscribers] = useState(subscribers)
+  const [loadingSubscribers, setLoadingSubscribers] = useState(true)
   const [form, setForm] = useState(isEdit ? {
     subscriber_id: String(attr.subscriber_id ?? ''),
     key: attr.key || '',
     value: attr.value || '',
   } : { subscriber_id: '', key: '', value: '' })
   const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    let active = true
+
+    async function loadSubscribers() {
+      setLoadingSubscribers(true)
+      try {
+        const data = await getSubscribers()
+        if (active) setAvailableSubscribers(Array.isArray(data?.items) ? data.items : [])
+      } catch (err) {
+        if (active) {
+          setAvailableSubscribers(Array.isArray(subscribers) ? subscribers : [])
+          toast.error('Subscribers', err.message || 'Failed to load subscribers')
+        }
+      } finally {
+        if (active) setLoadingSubscribers(false)
+      }
+    }
+
+    loadSubscribers()
+    return () => { active = false }
+  }, [subscribers, toast])
 
   function set(k, v) { setForm(p => ({ ...p, [k]: v })) }
 
@@ -44,9 +68,9 @@ function AttributeModal({ attr, onClose, onSaved, subscribers }) {
         <div className="modal-body">
           <div className="form-group">
             <label className="form-label">Subscriber <span style={{ color: 'var(--danger)' }}>*</span></label>
-            <select className="select" value={form.subscriber_id} onChange={e => set('subscriber_id', e.target.value)} disabled={isEdit} required>
-              <option value="">— Select subscriber —</option>
-              {subscribers.map(s => (
+            <select className="select" value={form.subscriber_id} onChange={e => set('subscriber_id', e.target.value)} disabled={isEdit || loadingSubscribers} required>
+              <option value="">{loadingSubscribers ? 'Loading subscribers...' : '— Select subscriber —'}</option>
+              {availableSubscribers.map(s => (
                 <option key={s.subscriber_id} value={String(s.subscriber_id)}>
                   {s.imsi}{s.msisdn ? ` (${s.msisdn})` : ''}
                 </option>

@@ -12,6 +12,10 @@ const IP_VERSION_LABELS = { 0: 'IPv4', 1: 'IPv6', 2: 'IPv4v6', 3: 'IPv4 or v6' }
 function RoutingModal({ routing, onClose, onSaved, subscribers, apns }) {
   const toast = useToast()
   const isEdit = !!routing
+  const [availableSubscribers, setAvailableSubscribers] = useState(subscribers)
+  const [availableApns, setAvailableApns] = useState(apns)
+  const [loadingSubscribers, setLoadingSubscribers] = useState(true)
+  const [loadingApns, setLoadingApns] = useState(true)
   const [form, setForm] = useState(isEdit ? {
     subscriber_id: String(routing.subscriber_id ?? ''),
     apn_id: String(routing.apn_id ?? ''),
@@ -19,6 +23,44 @@ function RoutingModal({ routing, onClose, onSaved, subscribers, apns }) {
     ip_address: routing.ip_address || '',
   } : { subscriber_id: '', apn_id: '', ip_version: 0, ip_address: '' })
   const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    let active = true
+
+    async function loadSubscribers() {
+      setLoadingSubscribers(true)
+      try {
+        const data = await getSubscribers()
+        if (active) setAvailableSubscribers(Array.isArray(data?.items) ? data.items : [])
+      } catch (err) {
+        if (active) {
+          setAvailableSubscribers(Array.isArray(subscribers) ? subscribers : [])
+          toast.error('Subscribers', err.message || 'Failed to load subscribers')
+        }
+      } finally {
+        if (active) setLoadingSubscribers(false)
+      }
+    }
+
+    async function loadApns() {
+      setLoadingApns(true)
+      try {
+        const data = await getAPNs()
+        if (active) setAvailableApns(Array.isArray(data) ? data : [])
+      } catch (err) {
+        if (active) {
+          setAvailableApns(Array.isArray(apns) ? apns : [])
+          toast.error('APNs', err.message || 'Failed to load APNs')
+        }
+      } finally {
+        if (active) setLoadingApns(false)
+      }
+    }
+
+    loadSubscribers()
+    loadApns()
+    return () => { active = false }
+  }, [apns, subscribers, toast])
 
   function set(k, v) { setForm(p => ({ ...p, [k]: v })) }
 
@@ -52,9 +94,9 @@ function RoutingModal({ routing, onClose, onSaved, subscribers, apns }) {
         <div className="modal-body">
           <div className="form-group">
             <label className="form-label">Subscriber <span style={{ color: 'var(--danger)' }}>*</span></label>
-            <select className="select" value={form.subscriber_id} onChange={e => set('subscriber_id', e.target.value)} disabled={isEdit} required>
-              <option value="">— Select subscriber —</option>
-              {subscribers.map(s => (
+            <select className="select" value={form.subscriber_id} onChange={e => set('subscriber_id', e.target.value)} disabled={isEdit || loadingSubscribers} required>
+              <option value="">{loadingSubscribers ? 'Loading subscribers...' : '— Select subscriber —'}</option>
+              {availableSubscribers.map(s => (
                 <option key={s.subscriber_id} value={String(s.subscriber_id)}>
                   {s.imsi}{s.msisdn ? ` (${s.msisdn})` : ''}
                 </option>
@@ -63,9 +105,9 @@ function RoutingModal({ routing, onClose, onSaved, subscribers, apns }) {
           </div>
           <div className="form-group">
             <label className="form-label">APN <span style={{ color: 'var(--danger)' }}>*</span></label>
-            <select className="select" value={form.apn_id} onChange={e => set('apn_id', e.target.value)} disabled={isEdit} required>
-              <option value="">— Select APN —</option>
-              {apns.map(a => (
+            <select className="select" value={form.apn_id} onChange={e => set('apn_id', e.target.value)} disabled={isEdit || loadingApns} required>
+              <option value="">{loadingApns ? 'Loading APNs...' : '— Select APN —'}</option>
+              {availableApns.map(a => (
                 <option key={a.apn_id} value={String(a.apn_id)}>{a.apn}</option>
               ))}
             </select>
