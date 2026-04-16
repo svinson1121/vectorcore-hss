@@ -38,6 +38,8 @@ const SECTION_STYLE = {
 function IMSModal({ row, onClose, onSaved, subscriberList, ifcProfiles }) {
   const toast = useToast()
   const isEdit = !!row
+  const [availableIfcProfiles, setAvailableIfcProfiles] = useState(ifcProfiles)
+  const [loadingIfcProfiles, setLoadingIfcProfiles] = useState(true)
   const [form, setForm] = useState(isEdit ? {
     imsi: row.imsi || '',
     msisdn: row.msisdn || '',
@@ -50,6 +52,28 @@ function IMSModal({ row, onClose, onSaved, subscriberList, ifcProfiles }) {
     ifc_profile_id: '',
   })
   const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    let active = true
+
+    async function loadIfcProfiles() {
+      setLoadingIfcProfiles(true)
+      try {
+        const data = await getIFCProfiles()
+        if (active) setAvailableIfcProfiles(Array.isArray(data) ? data : [])
+      } catch (err) {
+        if (active) {
+          setAvailableIfcProfiles(Array.isArray(ifcProfiles) ? ifcProfiles : [])
+          toast.error('IFC profiles', err.message || 'Failed to load IFC profiles')
+        }
+      } finally {
+        if (active) setLoadingIfcProfiles(false)
+      }
+    }
+
+    loadIfcProfiles()
+    return () => { active = false }
+  }, [ifcProfiles, toast])
 
   function set(k, v) {
     setForm(prev => ({ ...prev, [k]: v }))
@@ -160,9 +184,12 @@ function IMSModal({ row, onClose, onSaved, subscriberList, ifcProfiles }) {
               value={form.ifc_profile_id}
               onChange={e => set('ifc_profile_id', e.target.value)}
               required
+              disabled={loadingIfcProfiles}
             >
-              <option value="">— Select IFC Profile —</option>
-              {ifcProfiles.map(p => (
+              <option value="">
+                {loadingIfcProfiles ? 'Loading IFC Profiles...' : '— Select IFC Profile —'}
+              </option>
+              {availableIfcProfiles.map(p => (
                 <option key={p.ifc_profile_id} value={String(p.ifc_profile_id)}>{p.name}</option>
               ))}
             </select>
