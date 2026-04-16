@@ -2,7 +2,6 @@ package cx
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 	"sync/atomic"
 
@@ -11,6 +10,7 @@ import (
 	"github.com/fiorix/go-diameter/v4/diam/datatype"
 	"github.com/svinson1121/vectorcore-hss/internal/config"
 	"github.com/svinson1121/vectorcore-hss/internal/geored"
+	"github.com/svinson1121/vectorcore-hss/internal/ims"
 	"github.com/svinson1121/vectorcore-hss/internal/repository"
 	"go.uber.org/zap"
 )
@@ -81,9 +81,7 @@ func normalizeMSISDN(publicID string) string {
 
 // imsIMSDomain formats the IMS home domain for this PLMN.
 func imsIMSDomain(mcc, mnc string) string {
-	mncPadded := fmt.Sprintf("%03s", mnc)
-	_ = strconv.Itoa // keep strconv imported if needed elsewhere
-	return fmt.Sprintf("ims.mnc%s.mcc%s.3gppnetwork.org", mncPadded, mcc)
+	return fmt.Sprintf("ims.mnc%s.mcc%s.3gppnetwork.org", ims.NormalizeMNC(mnc), mcc)
 }
 
 // buildCxAnswer builds a bare Cx answer frame matching the PyHSS AVP layout:

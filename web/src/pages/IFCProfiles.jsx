@@ -1,5 +1,5 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react'
-import { Plus, Pencil, Trash2, RefreshCw, FileCode, Maximize2, Minimize2, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react'
+import React, { useState, useCallback, useEffect, lazy, Suspense } from 'react'
+import { Plus, Pencil, Trash2, RefreshCw, FileCode, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react'
 import { useSort } from '../hooks/useSort.js'
 import Spinner from '../components/Spinner.jsx'
 import Modal from '../components/Modal.jsx'
@@ -7,7 +7,7 @@ import { useToast } from '../components/Toast.jsx'
 import { usePoller } from '../hooks/usePoller.js'
 import { getIFCProfiles, createIFCProfile, updateIFCProfile, deleteIFCProfile, getIMSSubscribers } from '../api/client.js'
 
-const DEFAULT_IFC_TEMPLATE = `<!--Default iFC template used by VectorCore HSS. Variables: {imsi} {msisdn} {mnc} {mcc}-->
+const DEFAULT_IFC_TEMPLATE = `<!--VectorCore iFC Template. Variables: {imsi} {msisdn} {mnc} {mcc}-->
 <PublicIdentity>
     <Identity>sip:{msisdn}@ims.mnc{mnc}.mcc{mcc}.3gppnetwork.org</Identity>
     <Extension>
@@ -26,12 +26,14 @@ const DEFAULT_IFC_TEMPLATE = `<!--Default iFC template used by VectorCore HSS. V
         </Extension>
     </Extension>
 </PublicIdentity>
-<PublicIdentity>
-    <Identity>sip:{imsi}@ims.mnc{mnc}.mcc{mcc}.3gppnetwork.org</Identity>
-    <Extension>
-        <IdentityType>0</IdentityType>
-    </Extension>
-</PublicIdentity>
+<!--
+<PublicIdentity> 
+     <Identity>sip:{imsi}@ims.mnc{mnc}.mcc{mcc}.3gppnetwork.org</Identity> 
+     <Extension>
+          <IdentityType>0</IdentityType> 
+     </Extension>
+ </PublicIdentity>
+-->
 
 <!-- Copy SIP REGISTER towards Application Server -->
 <!--
@@ -178,79 +180,34 @@ const DEFAULT_IFC_TEMPLATE = `<!--Default iFC template used by VectorCore HSS. V
 </InitialFilterCriteria>
 -->`
 
-/** Simple XML editor textarea with Tab-key support and line numbers */
-function XMLEditor({ value, onChange, rows = 16 }) {
-  const textareaRef = useRef(null)
-  const lineCount = (value || '').split('\n').length
-  const lineNumbers = Array.from({ length: Math.max(lineCount, rows) }, (_, i) => i + 1)
+const IFCCodeEditor = lazy(() => import('../components/IFCCodeEditor.jsx'))
 
-  function handleKeyDown(e) {
-    if (e.key === 'Tab') {
-      e.preventDefault()
-      const ta = textareaRef.current
-      const start = ta.selectionStart
-      const end = ta.selectionEnd
-      const newVal = value.slice(0, start) + '  ' + value.slice(end)
-      onChange(newVal)
-      // Restore cursor after React re-render
-      requestAnimationFrame(() => {
-        ta.selectionStart = ta.selectionEnd = start + 2
-      })
-    }
+function validateXMLFragment(value) {
+  if (!value.trim()) {
+    return { valid: false, message: 'XML data is required.' }
   }
 
-  return (
-    <div style={{
-      display: 'flex',
-      border: '1px solid var(--border)',
-      borderRadius: 'var(--radius-sm)',
-      background: 'var(--bg-input)',
-      overflow: 'hidden',
-      fontFamily: 'var(--font-mono)',
-      fontSize: '0.8rem',
-      lineHeight: '1.6',
-    }}>
-      {/* Line numbers */}
-      <div style={{
-        padding: '7px 8px 7px 10px',
-        background: 'var(--bg-elevated)',
-        borderRight: '1px solid var(--border-subtle)',
-        color: 'var(--text-muted)',
-        textAlign: 'right',
-        userSelect: 'none',
-        minWidth: 36,
-        flexShrink: 0,
-        overflowY: 'hidden',
-      }}>
-        {lineNumbers.map(n => <div key={n}>{n}</div>)}
-      </div>
-      {/* Editor */}
-      <textarea
-        ref={textareaRef}
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        onKeyDown={handleKeyDown}
-        placeholder={DEFAULT_IFC_TEMPLATE}
-        rows={rows}
-        style={{
-          flex: 1,
-          resize: 'vertical',
-          border: 'none',
-          outline: 'none',
-          padding: '7px 10px',
-          background: 'transparent',
-          color: 'var(--text)',
-          fontFamily: 'inherit',
-          fontSize: 'inherit',
-          lineHeight: 'inherit',
-          minHeight: rows * 1.6 * 13 + 14,
-        }}
-        spellCheck={false}
-        autoCorrect="off"
-        autoCapitalize="off"
-      />
-    </div>
-  )
+  try {
+    const parser = new DOMParser()
+    const doc = parser.parseFromString(`<vectorcore-ifc-fragment>${value}</vectorcore-ifc-fragment>`, 'application/xml')
+    const parserError = doc.querySelector('parsererror')
+    if (!parserError) {
+      return { valid: true, message: 'XML fragment looks valid.' }
+    }
+
+    const text = parserError.textContent
+      ?.replace(/\s+/g, ' ')
+      .replace(/^This page contains the following errors:\s*/i, '')
+      .replace(/\s*Below is a rendering of the page up to the first error\.\s*$/i, '')
+      .trim()
+
+    return {
+      valid: false,
+      message: text || 'XML fragment is not well-formed.',
+    }
+  } catch {
+    return { valid: false, message: 'Unable to validate XML fragment in this browser.' }
+  }
 }
 
 function IFCProfileModal({ profile, onClose, onSaved }) {
@@ -261,6 +218,7 @@ function IFCProfileModal({ profile, onClose, onSaved }) {
     xml_data: profile.xml_data || '',
   } : { name: '', xml_data: DEFAULT_IFC_TEMPLATE })
   const [saving, setSaving] = useState(false)
+  const validation = validateXMLFragment(form.xml_data)
 
   function set(k, v) { setForm(prev => ({ ...prev, [k]: v })) }
 
@@ -268,6 +226,7 @@ function IFCProfileModal({ profile, onClose, onSaved }) {
     e.preventDefault()
     if (!form.name.trim()) { toast.error('Validation', 'Profile name is required'); return }
     if (!form.xml_data.trim()) { toast.error('Validation', 'XML data is required'); return }
+    if (!validation.valid) { toast.error('Validation', validation.message); return }
     setSaving(true)
     try {
       const payload = { name: form.name, xml_data: form.xml_data }
@@ -300,22 +259,15 @@ function IFCProfileModal({ profile, onClose, onSaved }) {
               required
             />
           </div>
-          {isEdit && (
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-              Profile ID: <span style={{ fontFamily: 'var(--font-mono)' }}>{profile.ifc_profile_id}</span>
-            </div>
-          )}
-
           <div className="form-group">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
               <label className="form-label" style={{ margin: 0 }}>
                 IFC XML Data <span style={{ color: 'var(--danger)' }}>*</span>
               </label>
-              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                Tab = 2 spaces
-              </span>
             </div>
-            <XMLEditor value={form.xml_data} onChange={v => set('xml_data', v)} rows={18} />
+            <Suspense fallback={<div style={{ padding: '12px 10px', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', color: 'var(--text-muted)' }}>Loading XML editor...</div>}>
+              <IFCCodeEditor value={form.xml_data} onChange={v => set('xml_data', v)} validation={validation} rows={18} />
+            </Suspense>
           </div>
         </div>
         <div className="modal-footer">
@@ -452,7 +404,7 @@ export default function IFCProfiles({ compact = false }) {
       {delConfirm && (
         <Modal title="Delete IFC Profile" onClose={() => setDelConfirm(null)}>
           <div className="modal-body">
-            <p>Delete IFC profile <strong>"{delConfirm.name}"</strong>? Subscribers referencing this profile will lose their IFC configuration. This cannot be undone.</p>
+            <p>Delete IFC profile <strong>"{delConfirm.name}"</strong>, are you sure?</p>
           </div>
           <div className="modal-footer">
             <button className="btn btn-ghost" onClick={() => setDelConfirm(null)}>Cancel</button>

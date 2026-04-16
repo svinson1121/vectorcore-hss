@@ -24,16 +24,16 @@ func BuildCxUserData(sub *models.IMSSubscriber, ifc *models.IFCProfile, mcc, mnc
 	if sub.IMSI != nil {
 		imsi = *sub.IMSI
 	}
-	mncPadded := fmt.Sprintf("%03s", mnc)
-	imsDomain := fmt.Sprintf("ims.mnc%s.mcc%s.3gppnetwork.org", mncPadded, mcc)
-	privateID := fmt.Sprintf("%s@%s", imsi, imsDomain)
+	normalizedMNC := NormalizeMNC(mnc)
+	domain := imsDomain(mcc, mnc)
+	privateID := fmt.Sprintf("%s@%s", imsi, domain)
 
 	ifcContent := ""
 	if ifc != nil {
 		ifcContent = ifc.XMLData
 		ifcContent = strings.ReplaceAll(ifcContent, "{msisdn}", sub.MSISDN)
 		ifcContent = strings.ReplaceAll(ifcContent, "{mcc}", mcc)
-		ifcContent = strings.ReplaceAll(ifcContent, "{mnc}", mnc)
+		ifcContent = strings.ReplaceAll(ifcContent, "{mnc}", normalizedMNC)
 		if sub.IMSI != nil {
 			ifcContent = strings.ReplaceAll(ifcContent, "{imsi}", *sub.IMSI)
 		}
@@ -65,16 +65,16 @@ func BuildShUserData(sub *models.IMSSubscriber, ifc *models.IFCProfile, mcc, mnc
 		imsi = *sub.IMSI
 	}
 
-	mncPadded := fmt.Sprintf("%03s", mnc)
-	imsDomain := fmt.Sprintf("ims.mnc%s.mcc%s.3gppnetwork.org", mncPadded, mcc)
-	privateIdentity := fmt.Sprintf("%s@%s", imsi, imsDomain)
+	normalizedMNC := NormalizeMNC(mnc)
+	domain := imsDomain(mcc, mnc)
+	privateIdentity := fmt.Sprintf("%s@%s", imsi, domain)
 
 	// Build the list of public identities: TEL URI + SIP URI for primary MSISDN,
 	// plus any additional MSISDNs from MSISDNList.
 	type pubID struct{ tel, sip string }
 	pubIDs := []pubID{{
 		tel: fmt.Sprintf("tel:%s", sub.MSISDN),
-		sip: fmt.Sprintf("sip:%s@%s", sub.MSISDN, imsDomain),
+		sip: fmt.Sprintf("sip:%s@%s", sub.MSISDN, domain),
 	}}
 	if sub.MSISDNList != nil && *sub.MSISDNList != "" {
 		for _, extra := range strings.Split(*sub.MSISDNList, ",") {
@@ -82,7 +82,7 @@ func BuildShUserData(sub *models.IMSSubscriber, ifc *models.IFCProfile, mcc, mnc
 			if extra != "" && extra != sub.MSISDN {
 				pubIDs = append(pubIDs, pubID{
 					tel: fmt.Sprintf("tel:%s", extra),
-					sip: fmt.Sprintf("sip:%s@%s", extra, imsDomain),
+					sip: fmt.Sprintf("sip:%s@%s", extra, domain),
 				})
 			}
 		}
@@ -114,7 +114,7 @@ func BuildShUserData(sub *models.IMSSubscriber, ifc *models.IFCProfile, mcc, mnc
 		ifcContent = ifc.XMLData
 		ifcContent = strings.ReplaceAll(ifcContent, "{msisdn}", sub.MSISDN)
 		ifcContent = strings.ReplaceAll(ifcContent, "{mcc}", mcc)
-		ifcContent = strings.ReplaceAll(ifcContent, "{mnc}", mnc)
+		ifcContent = strings.ReplaceAll(ifcContent, "{mnc}", normalizedMNC)
 		if sub.IMSI != nil {
 			ifcContent = strings.ReplaceAll(ifcContent, "{imsi}", *sub.IMSI)
 		}
