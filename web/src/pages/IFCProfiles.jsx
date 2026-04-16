@@ -7,183 +7,176 @@ import { useToast } from '../components/Toast.jsx'
 import { usePoller } from '../hooks/usePoller.js'
 import { getIFCProfiles, createIFCProfile, updateIFCProfile, deleteIFCProfile, getIMSSubscribers } from '../api/client.js'
 
-const DEFAULT_IFC_TEMPLATE = `<?xml version="1.0" encoding="UTF-8"?>
-<!--Default iFC template used by VectorCore HSS. Variables: {imsi} {msisdn} {mnc} {mcc}-->
-<IMSSubscription>
-    <PrivateID>{imsi}@ims.mnc{mnc}.mcc{mcc}.3gppnetwork.org</PrivateID>
-    <ServiceProfile>
-        <PublicIdentity>
-            <Identity>sip:{msisdn}@ims.mnc{mnc}.mcc{mcc}.3gppnetwork.org</Identity>
-            <Extension>
-                <IdentityType>0</IdentityType>
-                <Extension>
-                    <AliasIdentityGroupID>1</AliasIdentityGroupID>
-                </Extension>
-            </Extension>
-        </PublicIdentity>
-        <PublicIdentity>
-            <Identity>tel:{msisdn}</Identity>
-            <Extension>
-                <IdentityType>0</IdentityType>
-                <Extension>
-                    <AliasIdentityGroupID>1</AliasIdentityGroupID>
-                </Extension>
-            </Extension>
-        </PublicIdentity>
-        <PublicIdentity>
-            <Identity>sip:{imsi}@ims.mnc{mnc}.mcc{mcc}.3gppnetwork.org</Identity>
-            <Extension>
-                <IdentityType>0</IdentityType>
-            </Extension>
-        </PublicIdentity>
+const DEFAULT_IFC_TEMPLATE = `<!--Default iFC template used by VectorCore HSS. Variables: {imsi} {msisdn} {mnc} {mcc}-->
+<PublicIdentity>
+    <Identity>sip:{msisdn}@ims.mnc{mnc}.mcc{mcc}.3gppnetwork.org</Identity>
+    <Extension>
+        <IdentityType>0</IdentityType>
+        <Extension>
+            <AliasIdentityGroupID>1</AliasIdentityGroupID>
+        </Extension>
+    </Extension>
+</PublicIdentity>
+<PublicIdentity>
+    <Identity>tel:{msisdn}</Identity>
+    <Extension>
+        <IdentityType>0</IdentityType>
+        <Extension>
+            <AliasIdentityGroupID>1</AliasIdentityGroupID>
+        </Extension>
+    </Extension>
+</PublicIdentity>
+<PublicIdentity>
+    <Identity>sip:{imsi}@ims.mnc{mnc}.mcc{mcc}.3gppnetwork.org</Identity>
+    <Extension>
+        <IdentityType>0</IdentityType>
+    </Extension>
+</PublicIdentity>
 
-        <!-- Copy SIP REGISTER towards Application Server -->
-        <!--
-        <InitialFilterCriteria>
-            <Priority>10</Priority>
-            <TriggerPoint>
-                <ConditionTypeCNF>0</ConditionTypeCNF>
-                <SPT>
-                    <ConditionNegated>0</ConditionNegated>
-                    <Group>0</Group>
-                    <Method>REGISTER</Method>
-                    <Extension></Extension>
-                </SPT>
-            </TriggerPoint>
-            <ApplicationServer>
-                <ServerName>sip:applicationserver.mnc{mnc}.mcc{mcc}.3gppnetwork.org:5060</ServerName>
-                <DefaultHandling>0</DefaultHandling>
-                <Extension>
-                    <IncludeRegisterRequest/>
-                    <IncludeRegisterResponse/>
-                </Extension>
-            </ApplicationServer>
-        </InitialFilterCriteria>
-        -->
+<!-- Copy SIP REGISTER towards Application Server -->
+<!--
+<InitialFilterCriteria>
+    <Priority>10</Priority>
+    <TriggerPoint>
+        <ConditionTypeCNF>0</ConditionTypeCNF>
+        <SPT>
+            <ConditionNegated>0</ConditionNegated>
+            <Group>0</Group>
+            <Method>REGISTER</Method>
+            <Extension></Extension>
+        </SPT>
+    </TriggerPoint>
+    <ApplicationServer>
+        <ServerName>sip:applicationserver.mnc{mnc}.mcc{mcc}.3gppnetwork.org:5060</ServerName>
+        <DefaultHandling>0</DefaultHandling>
+        <Extension>
+            <IncludeRegisterRequest/>
+            <IncludeRegisterResponse/>
+        </Extension>
+    </ApplicationServer>
+</InitialFilterCriteria>
+-->
 
-        <!-- Copy SIP REGISTER towards SMSc -->
-        <InitialFilterCriteria>
-            <Priority>11</Priority>
-            <TriggerPoint>
-                <ConditionTypeCNF>0</ConditionTypeCNF>
-                <SPT>
-                    <ConditionNegated>0</ConditionNegated>
-                    <Group>0</Group>
-                    <Method>REGISTER</Method>
-                    <Extension></Extension>
-                </SPT>
-            </TriggerPoint>
-            <ApplicationServer>
-                <ServerName>sip:smsc.ims.mnc{mnc}.mcc{mcc}.3gppnetwork.org:5060</ServerName>
-                <DefaultHandling>0</DefaultHandling>
-                <Extension>
-                    <IncludeRegisterRequest/>
-                    <IncludeRegisterResponse/>
-                </Extension>
-            </ApplicationServer>
-        </InitialFilterCriteria>
+<!-- Copy SIP REGISTER towards SMSc -->
+<InitialFilterCriteria>
+    <Priority>11</Priority>
+    <TriggerPoint>
+        <ConditionTypeCNF>0</ConditionTypeCNF>
+        <SPT>
+            <ConditionNegated>0</ConditionNegated>
+            <Group>0</Group>
+            <Method>REGISTER</Method>
+            <Extension></Extension>
+        </SPT>
+    </TriggerPoint>
+    <ApplicationServer>
+        <ServerName>sip:smsc.ims.mnc{mnc}.mcc{mcc}.3gppnetwork.org:5060</ServerName>
+        <DefaultHandling>0</DefaultHandling>
+        <Extension>
+            <IncludeRegisterRequest/>
+            <IncludeRegisterResponse/>
+        </Extension>
+    </ApplicationServer>
+</InitialFilterCriteria>
 
-        <!-- SIP MESSAGE Traffic -->
-        <InitialFilterCriteria>
-            <Priority>20</Priority>
-            <TriggerPoint>
-                <ConditionTypeCNF>1</ConditionTypeCNF>
-                <SPT>
-                    <ConditionNegated>0</ConditionNegated>
-                    <Group>0</Group>
-                    <Method>MESSAGE</Method>
-                    <Extension></Extension>
-                </SPT>
-                <SPT>
-                    <ConditionNegated>1</ConditionNegated>
-                    <Group>1</Group>
-                    <SIPHeader>
-                        <Header>Server</Header>
-                    </SIPHeader>
-                </SPT>
-                <SPT>
-                    <ConditionNegated>0</ConditionNegated>
-                    <Group>2</Group>
-                    <SessionCase>0</SessionCase>
-                    <Extension></Extension>
-                </SPT>
-            </TriggerPoint>
-            <ApplicationServer>
-                <ServerName>sip:smsc.ims.mnc{mnc}.mcc{mcc}.3gppnetwork.org:5060</ServerName>
-                <DefaultHandling>0</DefaultHandling>
-            </ApplicationServer>
-        </InitialFilterCriteria>
+<!-- SIP MESSAGE Traffic -->
+<InitialFilterCriteria>
+    <Priority>20</Priority>
+    <TriggerPoint>
+        <ConditionTypeCNF>1</ConditionTypeCNF>
+        <SPT>
+            <ConditionNegated>0</ConditionNegated>
+            <Group>0</Group>
+            <Method>MESSAGE</Method>
+            <Extension></Extension>
+        </SPT>
+        <SPT>
+            <ConditionNegated>1</ConditionNegated>
+            <Group>1</Group>
+            <SIPHeader>
+                <Header>Server</Header>
+            </SIPHeader>
+        </SPT>
+        <SPT>
+            <ConditionNegated>0</ConditionNegated>
+            <Group>2</Group>
+            <SessionCase>0</SessionCase>
+            <Extension></Extension>
+        </SPT>
+    </TriggerPoint>
+    <ApplicationServer>
+        <ServerName>sip:smsc.ims.mnc{mnc}.mcc{mcc}.3gppnetwork.org:5060</ServerName>
+        <DefaultHandling>0</DefaultHandling>
+    </ApplicationServer>
+</InitialFilterCriteria>
 
-        <!-- SIP USSD Traffic to USSD-GW -->
-        <InitialFilterCriteria>
-            <Priority>25</Priority>
-            <TriggerPoint>
-                <ConditionTypeCNF>1</ConditionTypeCNF>
-                <SPT>
-                    <ConditionNegated>0</ConditionNegated>
-                    <Group>1</Group>
-                    <SIPHeader>
-                        <Header>Recv-Info</Header>
-                        <Content>"g.3gpp.ussd"</Content>
-                    </SIPHeader>
-                </SPT>
-            </TriggerPoint>
-            <ApplicationServer>
-                <ServerName>sip:ussd.ims.mnc{mnc}.mcc{mcc}.3gppnetwork.org:5060</ServerName>
-                <DefaultHandling>0</DefaultHandling>
-            </ApplicationServer>
-        </InitialFilterCriteria>
+<!-- SIP USSD Traffic to USSD-GW -->
+<InitialFilterCriteria>
+    <Priority>25</Priority>
+    <TriggerPoint>
+        <ConditionTypeCNF>1</ConditionTypeCNF>
+        <SPT>
+            <ConditionNegated>0</ConditionNegated>
+            <Group>1</Group>
+            <SIPHeader>
+                <Header>Recv-Info</Header>
+                <Content>"g.3gpp.ussd"</Content>
+            </SIPHeader>
+        </SPT>
+    </TriggerPoint>
+    <ApplicationServer>
+        <ServerName>sip:ussd.ims.mnc{mnc}.mcc{mcc}.3gppnetwork.org:5060</ServerName>
+        <DefaultHandling>0</DefaultHandling>
+    </ApplicationServer>
+</InitialFilterCriteria>
 
-        <!-- SIP INVITE Traffic from Registered Sub -->
-        <!--
-        <InitialFilterCriteria>
-            <Priority>30</Priority>
-            <TriggerPoint>
-                <ConditionTypeCNF>1</ConditionTypeCNF>
-                <SPT>
-                    <ConditionNegated>0</ConditionNegated>
-                    <Group>0</Group>
-                    <Method>INVITE</Method>
-                    <Extension></Extension>
-                </SPT>
-                <SPT>
-                    <Group>0</Group>
-                    <SessionCase>0</SessionCase>
-                </SPT>
-            </TriggerPoint>
-            <ApplicationServer>
-                <ServerName>sip:softswitch.ims.mnc{mnc}.mcc{mcc}.3gppnetwork.org</ServerName>
-                <DefaultHandling>0</DefaultHandling>
-            </ApplicationServer>
-        </InitialFilterCriteria>
-        -->
+<!-- SIP INVITE Traffic from Registered Sub -->
+<!--
+<InitialFilterCriteria>
+    <Priority>30</Priority>
+    <TriggerPoint>
+        <ConditionTypeCNF>1</ConditionTypeCNF>
+        <SPT>
+            <ConditionNegated>0</ConditionNegated>
+            <Group>0</Group>
+            <Method>INVITE</Method>
+            <Extension></Extension>
+        </SPT>
+        <SPT>
+            <Group>0</Group>
+            <SessionCase>0</SessionCase>
+        </SPT>
+    </TriggerPoint>
+    <ApplicationServer>
+        <ServerName>sip:softswitch.ims.mnc{mnc}.mcc{mcc}.3gppnetwork.org</ServerName>
+        <DefaultHandling>0</DefaultHandling>
+    </ApplicationServer>
+</InitialFilterCriteria>
+-->
 
-        <!-- SIP INVITE Traffic for calls to Unregistered Sub (TERMINATING_UNREGISTERED) -->
-        <!--
-        <InitialFilterCriteria>
-            <Priority>40</Priority>
-            <TriggerPoint>
-                <ConditionTypeCNF>0</ConditionTypeCNF>
-                <SPT>
-                    <ConditionNegated>0</ConditionNegated>
-                    <Group>0</Group>
-                    <Method>INVITE</Method>
-                    <Extension></Extension>
-                </SPT>
-                <SPT>
-                    <Group>0</Group>
-                    <SessionCase>2</SessionCase>
-                </SPT>
-            </TriggerPoint>
-            <ApplicationServer>
-                <ServerName>sip:softswitch.ims.mnc{mnc}.mcc{mcc}.3gppnetwork.org:5060</ServerName>
-                <DefaultHandling>0</DefaultHandling>
-            </ApplicationServer>
-        </InitialFilterCriteria>
-        -->
-
-    </ServiceProfile>
-</IMSSubscription>`
+<!-- SIP INVITE Traffic for calls to Unregistered Sub (TERMINATING_UNREGISTERED) -->
+<!--
+<InitialFilterCriteria>
+    <Priority>40</Priority>
+    <TriggerPoint>
+        <ConditionTypeCNF>0</ConditionTypeCNF>
+        <SPT>
+            <ConditionNegated>0</ConditionNegated>
+            <Group>0</Group>
+            <Method>INVITE</Method>
+            <Extension></Extension>
+        </SPT>
+        <SPT>
+            <Group>0</Group>
+            <SessionCase>2</SessionCase>
+        </SPT>
+    </TriggerPoint>
+    <ApplicationServer>
+        <ServerName>sip:softswitch.ims.mnc{mnc}.mcc{mcc}.3gppnetwork.org:5060</ServerName>
+        <DefaultHandling>0</DefaultHandling>
+    </ApplicationServer>
+</InitialFilterCriteria>
+-->`
 
 /** Simple XML editor textarea with Tab-key support and line numbers */
 function XMLEditor({ value, onChange, rows = 16 }) {

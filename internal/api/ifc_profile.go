@@ -2,9 +2,13 @@ package api
 
 import (
 	"context"
+	"encoding/xml"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -41,6 +45,9 @@ func (s *Server) listIFCProfiles(ctx context.Context, _ *struct{}) (*IFCProfileL
 }
 
 func (s *Server) createIFCProfile(ctx context.Context, input *IFCProfileCreateInput) (*IFCProfileOutput, error) {
+	if err := validateIFCProfileXML(input.Body.XMLData); err != nil {
+		return nil, err
+	}
 	input.Body.LastModified = time.Now().UTC().Format(time.RFC3339)
 	if err := s.db.WithContext(ctx).Create(input.Body).Error; err != nil {
 		return nil, huma.Error500InternalServerError("db error", err)
@@ -66,6 +73,9 @@ func (s *Server) updateIFCProfile(ctx context.Context, input *IFCProfileUpdateIn
 		}
 		return nil, huma.Error500InternalServerError("db error", err)
 	}
+	if err := validateIFCProfileXML(input.Body.XMLData); err != nil {
+		return nil, err
+	}
 	input.Body.LastModified = time.Now().UTC().Format(time.RFC3339)
 	input.Body.IFCProfileID = input.ID
 	if err := s.db.WithContext(ctx).Save(input.Body).Error; err != nil {
@@ -84,4 +94,42 @@ func (s *Server) deleteIFCProfile(ctx context.Context, input *IFCProfileIDInput)
 		return nil, huma.Error500InternalServerError("db error", err)
 	}
 	return nil, nil
+}
+
+func validateIFCProfileXML(xmlData string) error {
+	if err := validateIFCProfileXMLFragment(xmlData); err != nil {
+		return huma.Error400BadRequest("invalid IFC XML", err)
+	}
+	return nil
+}
+
+func validateIFCProfileXMLFragment(xmlData string) error {
+	trimmed := strings.TrimSpace(xmlData)
+	if trimmed == "" {
+		return fmt.Errorf("xml_data must not be empty")
+	}
+	if strings.HasPrefix(trimmed, "<?xml") {
+		return fmt.Errorf("xml_data must not include an XML declaration")
+	}
+
+	decoder := xml.NewDecoder(strings.NewReader("<root>" + trimmed + "</root>"))
+	for {
+		tok, err := decoder.Token()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			return fmt.Errorf("xml_data must be well-formed XML fragments: %w", err)
+		}
+
+		start, ok := tok.(xml.StartElement)
+		if !ok {
+			continue
+		}
+
+		switch start.Name.Local {
+		case "IMSSubscription", "PrivateID", "ServiceProfile":
+			return fmt.Errorf("xml_data must only contain inner ServiceProfile fragments, not <%s>", start.Name.Local)
+		}
+	}
 }
