@@ -372,18 +372,23 @@ func (OperationLog) TableName() string { return "operation_log" }
 // ── MESSAGE_WAITING_DATA ──────────────────────────────────────────────────────
 
 // MessageWaitingData stores pending SMS notification requests from SMS-SCs.
-// Created by RSDS when delivery fails; consumed and deleted by ALSC when the
+// Created by RSDS when delivery fails; consumed and deleted by ALR when the
 // subscriber registers (ULR success). Part of the S6c interface (TS 29.338).
 type MessageWaitingData struct {
-	ID             int       `gorm:"column:id;primaryKey;autoIncrement"        json:"id,omitempty"`
-	IMSI           string    `gorm:"column:imsi;size:18;index;not null"        json:"imsi"`
-	SCAddress      string    `gorm:"column:sc_address;size:32;not null"        json:"sc_address"`
-	SCOriginHost   string    `gorm:"column:sc_origin_host;size:512;not null"   json:"sc_origin_host"`
-	SCOriginRealm  string    `gorm:"column:sc_origin_realm;size:512;not null"  json:"sc_origin_realm"`
-	SMRPMTI        int       `gorm:"column:sm_rp_mti;not null;default:0"      json:"sm_rp_mti"`
-	MWDStatusFlags uint32    `gorm:"column:mwd_status_flags;not null;default:0" json:"mwd_status_flags"`
-	CreatedAt      time.Time `gorm:"column:created_at;autoCreateTime"          json:"created_at,omitempty"`
-	LastModified   string    `gorm:"column:last_modified;size:100"             json:"last_modified,omitempty"`
+	ID                     int        `gorm:"column:id;primaryKey;autoIncrement"                  json:"id,omitempty"`
+	IMSI                   string     `gorm:"column:imsi;size:18;index;not null"                  json:"imsi"`
+	SCAddress              string     `gorm:"column:sc_address;size:32;not null"                  json:"sc_address"`
+	SCOriginHost           string     `gorm:"column:sc_origin_host;size:512;not null"             json:"sc_origin_host"`
+	SCOriginRealm          string     `gorm:"column:sc_origin_realm;size:512;not null"            json:"sc_origin_realm"`
+	SMRPMTI                int        `gorm:"column:sm_rp_mti;not null;default:0"                json:"sm_rp_mti"`
+	MWDStatusFlags         uint32     `gorm:"column:mwd_status_flags;not null;default:0"          json:"mwd_status_flags"`
+	SMSMICorrelationID     *string    `gorm:"column:smsmi_correlation_id;type:text"               json:"smsmi_correlation_id,omitempty"`
+	AbsentUserDiagnosticSM *uint32    `gorm:"column:absent_user_diagnostic_sm"                    json:"absent_user_diagnostic_sm,omitempty"`
+	LastAlertTrigger       *string    `gorm:"column:last_alert_trigger;size:64"                   json:"last_alert_trigger,omitempty"`
+	LastAlertAttemptAt     *time.Time `gorm:"column:last_alert_attempt_at"                        json:"last_alert_attempt_at,omitempty"`
+	AlertAttemptCount      uint32     `gorm:"column:alert_attempt_count;not null;default:0"      json:"alert_attempt_count"`
+	CreatedAt              time.Time  `gorm:"column:created_at;autoCreateTime"                    json:"created_at,omitempty"`
+	LastModified           string     `gorm:"column:last_modified;size:100"                       json:"last_modified,omitempty"`
 }
 
 func (MessageWaitingData) TableName() string { return "message_waiting_data" }

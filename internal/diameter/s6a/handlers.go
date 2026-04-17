@@ -48,9 +48,14 @@ type Handlers struct {
 	allowUndefinedRoaming bool
 	pub                   geored.TypedPublisher
 	// onRegister is called after a successful ULR (LTE attach).
-	// Wired to s6c.Handlers.SendALSCForIMSI by the server to trigger
-	// Alert-Service-Centre for any pending Message Waiting Data.
+	// Wired to the S6c alert sender by the server to trigger ALR for
+	// pending Message Waiting Data caused by subscriber absence.
 	onRegister func(imsi string)
+	// onSubscriberReady is called after a NOR that indicates the subscriber
+	// is ready again for SMS delivery. The trigger differentiates user
+	// presence from memory-available recovery. When the MME provides
+	// Maximum-UE-Availability-Time, it is passed through for ALR construction.
+	onSubscriberReady func(imsi string, trigger AlertTrigger, maximumUEAvailabilityTime *time.Time)
 
 	failMu       sync.Mutex
 	authFailures []AuthFailure
@@ -128,5 +133,12 @@ func (h *Handlers) WithGeored(pub geored.TypedPublisher) *Handlers {
 // Used to trigger S6c Alert-Service-Centre for pending Message Waiting Data.
 func (h *Handlers) WithOnRegister(fn func(imsi string)) *Handlers {
 	h.onRegister = fn
+	return h
+}
+
+// WithOnSubscriberReady sets a callback invoked when a NOR indicates the
+// subscriber is again ready for SMS delivery.
+func (h *Handlers) WithOnSubscriberReady(fn func(imsi string, trigger AlertTrigger, maximumUEAvailabilityTime *time.Time)) *Handlers {
+	h.onSubscriberReady = fn
 	return h
 }

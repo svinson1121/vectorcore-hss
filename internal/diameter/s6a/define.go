@@ -15,12 +15,25 @@ const (
 	FeatureListIDSMSInMME = uint32(2)
 	FeatureBitSMSInMME    = uint32(1 << 0)
 
+	avpAlertReason        = uint32(1434)
 	avpMMENumberForMTSMS  = uint32(1645)
 	avpSMSRegisterRequest = uint32(1648)
+	avpMaximumUEAvailabilityTime = uint32(3329)
 
 	SMSRegistrationRequired     = int32(0)
 	SMSRegistrationNotPreferred = int32(1)
 	SMSRegistrationNoPreference = int32(2)
+
+	AlertReasonUEPresent         = int32(0)
+	AlertReasonUEMemoryAvailable = int32(1)
+)
+
+type AlertTrigger string
+
+const (
+	AlertTriggerAttach          AlertTrigger = "attach"
+	AlertTriggerUserAvailable   AlertTrigger = "user_available"
+	AlertTriggerMemoryAvailable AlertTrigger = "memory_available"
 )
 
 type RequestedEUTRANAuthInfo struct {

@@ -85,9 +85,12 @@ const dictXML = `<?xml version="1.0" encoding="UTF-8"?>
         <rule avp="Destination-Host"   required="true"  max="1"/>
         <rule avp="Destination-Realm"  required="true"  max="1"/>
         <rule avp="SC-Address"         required="true"  max="1"/>
-        <rule avp="User-Name"          required="false" max="1"/>
-        <rule avp="MSISDN"             required="false" max="1"/>
+        <rule avp="User-Identifier"    required="true" max="1"/>
+        <rule avp="SMSMI-Correlation-ID" required="false" max="1"/>
         <rule avp="Absent-User-Diagnostic-SM" required="false" max="1"/>
+        <rule avp="Serving-Node"       required="false" max="1"/>
+        <rule avp="Maximum-UE-Availability-Time" required="false" max="1"/>
+        <rule avp="SMS-GMSC-Alert-Event" required="false" max="1"/>
       </request>
       <answer>
         <rule avp="Session-Id"         required="true"  max="1"/>
@@ -107,10 +110,11 @@ const dictXML = `<?xml version="1.0" encoding="UTF-8"?>
         <rule avp="Origin-Host"        required="true"  max="1"/>
         <rule avp="Origin-Realm"       required="true"  max="1"/>
         <rule avp="Destination-Realm"  required="true"  max="1"/>
-        <rule avp="User-Name"          required="false" max="1"/>
-        <rule avp="MSISDN"             required="false" max="1"/>
+        <rule avp="User-Identifier"    required="true" max="1"/>
         <rule avp="SC-Address"         required="true"  max="1"/>
         <rule avp="SM-RP-MTI"          required="false" max="1"/>
+        <rule avp="RDR-Flags"          required="false" max="1"/>
+        <rule avp="SMSMI-Correlation-ID" required="false" max="1"/>
         <rule avp="SM-Delivery-Outcome" required="false" max="1"/>
       </request>
       <answer>
@@ -120,6 +124,7 @@ const dictXML = `<?xml version="1.0" encoding="UTF-8"?>
         <rule avp="Experimental-Result" required="false" max="1"/>
         <rule avp="Origin-Host"        required="true"  max="1"/>
         <rule avp="Origin-Realm"       required="true"  max="1"/>
+        <rule avp="User-Identifier"    required="false" max="1"/>
         <rule avp="MWD-Status"         required="false" max="1"/>
       </answer>
     </command>
@@ -191,14 +196,17 @@ const dictXML = `<?xml version="1.0" encoding="UTF-8"?>
     <avp name="Absent-User-Diagnostic-SM" code="3322" must="V" may="M" must-not="-" may-encrypt="N" vendor-id="10415">
       <data type="Unsigned32"/>
     </avp>
-    <avp name="IP-SM-GW-Number" code="3327" must="V" may="M" must-not="-" may-encrypt="N" vendor-id="10415">
+    <avp name="RDR-Flags" code="3323" must="V" may="M" must-not="-" may-encrypt="N" vendor-id="10415">
+      <data type="Unsigned32"/>
+    </avp>
+    <avp name="SMSMI-Correlation-ID" code="3324" must="V" may="M" must-not="-" may-encrypt="N" vendor-id="10415">
       <data type="OctetString"/>
     </avp>
-    <avp name="IP-SM-GW-Name" code="3328" must="V" may="M" must-not="-" may-encrypt="N" vendor-id="10415">
-      <data type="DiameterIdentity"/>
+    <avp name="Maximum-UE-Availability-Time" code="3329" must="V" may="M" must-not="-" may-encrypt="N" vendor-id="10415">
+      <data type="Time"/>
     </avp>
-    <avp name="IP-SM-GW-Realm" code="3329" must="V" may="M" must-not="-" may-encrypt="N" vendor-id="10415">
-      <data type="DiameterIdentity"/>
+    <avp name="SMS-GMSC-Alert-Event" code="3333" must="V" may="M" must-not="-" may-encrypt="N" vendor-id="10415">
+      <data type="Unsigned32"/>
     </avp>
   </application>
 </diameter>`
@@ -207,6 +215,37 @@ const msisdnSupplementDict = `<?xml version="1.0" encoding="UTF-8"?>
 <diameter>
   <application id="0" name="Base">
     <vendor id="10415" name="3GPP"/>
+    <avp name="User-Identifier" code="3102" must="V" may="M" must-not="-" may-encrypt="N" vendor-id="10415">
+      <data type="Grouped">
+        <rule avp="User-Name" required="false" max="1"/>
+        <rule avp="MSISDN" required="false" max="1"/>
+        <rule avp="LMSI" required="false" max="1"/>
+      </data>
+    </avp>
+    <avp name="Serving-Node" code="2401" must="V" may="M" must-not="-" may-encrypt="N" vendor-id="10415">
+      <data type="Grouped">
+        <rule avp="SGSN-Name" required="false" max="1"/>
+        <rule avp="SGSN-Realm" required="false" max="1"/>
+        <rule avp="MME-Name" required="false" max="1"/>
+        <rule avp="MME-Realm" required="false" max="1"/>
+        <rule avp="MME-Number-for-MT-SMS" required="false" max="1"/>
+      </data>
+    </avp>
+    <avp name="MME-Name" code="2402" must="V" may="M" must-not="-" may-encrypt="N" vendor-id="10415">
+      <data type="DiameterIdentity"/>
+    </avp>
+    <avp name="SGSN-Name" code="2409" must="V" may="M" must-not="-" may-encrypt="N" vendor-id="10415">
+      <data type="DiameterIdentity"/>
+    </avp>
+    <avp name="MME-Realm" code="2408" must="V" may="M" must-not="-" may-encrypt="N" vendor-id="10415">
+      <data type="DiameterIdentity"/>
+    </avp>
+    <avp name="SGSN-Realm" code="2410" must="V" may="M" must-not="-" may-encrypt="N" vendor-id="10415">
+      <data type="DiameterIdentity"/>
+    </avp>
+    <avp name="MME-Number-for-MT-SMS" code="1645" must="V" may="M" must-not="-" may-encrypt="N" vendor-id="10415">
+      <data type="OctetString"/>
+    </avp>
     <avp name="MSISDN" code="701" must="M,V" must-not="-" may-encrypt="N" vendor-id="10415">
       <data type="OctetString"/>
     </avp>

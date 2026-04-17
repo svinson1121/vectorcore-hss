@@ -250,7 +250,7 @@
                 <rule avp="UE-SRVCC-Capability" required="false" max="1" />
                 <rule avp="NOR-Flags" required="false" max="1" />
                 <rule avp="Homogeneous-Support-of-IMS-Voice-Over-PS-Sessions" required="false" max="1" />
-                <rule avp="Maximum-UE-Availability-Type" required="false" max="1" />
+                <rule avp="Maximum-UE-Availability-Time" required="false" max="1" />
                 <rule avp="Monitoring-Event-Config-Status" required="false" />
                 <rule avp="Emergency-Services" required="false" max="1" />
                 <rule avp="Proxy-Info" required="false" />
@@ -1039,6 +1039,17 @@
 
         <avp name="PUR-Flags" code="1635" must="V" must-not="M" may-encrypt="N" vendor-id="10415">
             <data type="Unsigned32" />
+        </avp>
+
+        <avp name="Alert-Reason" code="1434" must="M,V" may-encrypt="N" vendor-id="10415">
+            <data type="Enumerated">
+                <item code="0" name="UE_PRESENT" />
+                <item code="1" name="UE_MEMORY_AVAILABLE" />
+            </data>
+        </avp>
+
+        <avp name="Maximum-UE-Availability-Time" code="3329" must="V" may-encrypt="N" vendor-id="10415">
+            <data type="Time" />
         </avp>
 
         <avp name="PUA-Flags" code="1442" must="M,V" may-encrypt="N" vendor-id="10415">

@@ -303,7 +303,7 @@ func (s *shStore) EIRNoMatchResponse() int                                      
 func (s *shStore) UpsertIMSIIMEIHistory(_ context.Context, _, _, _, _ string, _ int) error {
 	return nil
 }
-func (s *shStore) StoreMWD(_ context.Context, _, _, _, _ string, _ int, _ uint32) error {
+func (s *shStore) StoreMWD(_ context.Context, _ *models.MessageWaitingData) error {
 	return nil
 }
 func (s *shStore) GetMWDForIMSI(_ context.Context, _ string) ([]models.MessageWaitingData, error) {

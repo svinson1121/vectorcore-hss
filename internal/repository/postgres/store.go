@@ -652,27 +652,28 @@ func (s *Store) DeleteEIRByID(ctx context.Context, id int) error {
 
 // ── MWD (S6c) ────────────────────────────────────────────────────────────────
 
-func (s *Store) StoreMWD(ctx context.Context, imsi, scAddr, scOriginHost, scOriginRealm string, mti int, statusFlags uint32) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	rec := models.MessageWaitingData{
-		IMSI:           imsi,
-		SCAddress:      scAddr,
-		SCOriginHost:   scOriginHost,
-		SCOriginRealm:  scOriginRealm,
-		SMRPMTI:        mti,
-		MWDStatusFlags: statusFlags,
-		LastModified:   now,
+func (s *Store) StoreMWD(ctx context.Context, rec *models.MessageWaitingData) error {
+	if rec == nil {
+		return nil
 	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	record := *rec
+	record.LastModified = now
 	return s.db.WithContext(ctx).
-		Where("imsi = ? AND sc_address = ?", imsi, scAddr).
+		Where("imsi = ? AND sc_address = ?", record.IMSI, record.SCAddress).
 		Assign(models.MessageWaitingData{
-			SCOriginHost:   scOriginHost,
-			SCOriginRealm:  scOriginRealm,
-			SMRPMTI:        mti,
-			MWDStatusFlags: statusFlags,
-			LastModified:   now,
+			SCOriginHost:           record.SCOriginHost,
+			SCOriginRealm:          record.SCOriginRealm,
+			SMRPMTI:                record.SMRPMTI,
+			MWDStatusFlags:         record.MWDStatusFlags,
+			SMSMICorrelationID:     record.SMSMICorrelationID,
+			AbsentUserDiagnosticSM: record.AbsentUserDiagnosticSM,
+			LastAlertTrigger:       record.LastAlertTrigger,
+			LastAlertAttemptAt:     record.LastAlertAttemptAt,
+			AlertAttemptCount:      record.AlertAttemptCount,
+			LastModified:           now,
 		}).
-		FirstOrCreate(&rec).Error
+		FirstOrCreate(&record).Error
 }
 
 func (s *Store) GetMWDForIMSI(ctx context.Context, imsi string) ([]models.MessageWaitingData, error) {

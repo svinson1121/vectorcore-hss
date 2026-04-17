@@ -33,8 +33,8 @@ import (
 )
 
 const (
-	vendor3GPP     = uint32(10415)
-	appIDS6a       = uint32(16777251)
+	vendor3GPP      = uint32(10415)
+	appIDS6a        = uint32(16777251)
 	diamProductName = "VectorCore HSS"
 )
 
@@ -150,6 +150,14 @@ func NewServer(cfg *config.Config, store repository.Repository, log *zap.Logger)
 	gxH := gx.NewHandlers(cfg, store, log, ct)
 	s6cH := s6c.NewHandlers(cfg, store, log, ct)
 	s6aH.WithOnRegister(s6cH.SendALSCForIMSI)
+	s6aH.WithOnSubscriberReady(func(imsi string, trigger s6a.AlertTrigger, maximumUEAvailabilityTime *time.Time) {
+		switch trigger {
+		case s6a.AlertTriggerUserAvailable:
+			s6cH.SendALRForIMSIWithMaximumAvailability(imsi, s6c.AlertTriggerUserAvailable, maximumUEAvailabilityTime)
+		case s6a.AlertTriggerMemoryAvailable:
+			s6cH.SendALRForIMSIWithMaximumAvailability(imsi, s6c.AlertTriggerMemoryAvailable, maximumUEAvailabilityTime)
+		}
+	})
 	pt := newPeerTracker()
 	s := &Server{cfg: cfg, store: store, log: log, sm: machine, s6a: s6aH, s13: s13H, cxH: cxH, gxH: gxH, ct: ct, pt: pt}
 
@@ -223,10 +231,10 @@ func NewServer(cfg *config.Config, store repository.Repository, log *zap.Logger)
 	machine.HandleFunc("SIR", wrap("SRI-SM", s6cH.SRISR))
 	machine.HandleFunc("RDR", wrap("RSDS", s6cH.RDSMR))
 
-	// ASA — Alert-Service-Centre-Answer. The HSS originates ALSC;
-	// this handler receives the SMS-SC's reply and deletes MWD on success.
+	// "ASA" is the library's local dispatch alias for the answer to command
+	// 8388648. Internally we treat this as ALA per TS 29.338 naming.
 	machine.HandleFunc("ASA", func(conn diam.Conn, msg *diam.Message) {
-		s6cH.ASA(conn, msg)
+		s6cH.ALA(conn, msg)
 	})
 
 	// CLA — Cancel-Location-Answer. The HSS originates CLR;

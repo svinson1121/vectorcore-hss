@@ -14,6 +14,7 @@ const (
 	DiameterErrorUserUnknown              = uint32(5001)
 	DiameterErrorUnknownEPSSubscription   = uint32(5004)
 	DiameterErrorRoamingNotAllowed        = uint32(5006) // 3GPP TS 29.272 — PLMN not allowed
+	DiameterErrorMWDListFull              = uint32(5558) // 3GPP TS 29.338 — Message Waiting Data list full
 	DiameterAuthenticationDataUnavailable = uint32(4181)
 )
 

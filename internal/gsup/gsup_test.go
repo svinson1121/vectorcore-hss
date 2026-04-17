@@ -200,8 +200,10 @@ func (m *mockStore) UpsertIMSIIMEIHistory(_ context.Context, _, _, _, _ string, 
 func (m *mockStore) InvalidateCache(_ string) {}
 
 // GeoRed snapshot reads — not exercised by GSUP tests.
-func (m *mockStore) ListAllAUC(_ context.Context) ([]models.AUC, error)               { return nil, nil }
-func (m *mockStore) ListAllSubscribers(_ context.Context) ([]models.Subscriber, error) { return nil, nil }
+func (m *mockStore) ListAllAUC(_ context.Context) ([]models.AUC, error) { return nil, nil }
+func (m *mockStore) ListAllSubscribers(_ context.Context) ([]models.Subscriber, error) {
+	return nil, nil
+}
 func (m *mockStore) ListAllIMSSubscribers(_ context.Context) ([]models.IMSSubscriber, error) {
 	return nil, nil
 }
@@ -210,16 +212,16 @@ func (m *mockStore) ListAllServingAPN(_ context.Context) ([]repository.GeoredSer
 }
 
 // GeoRed OAM apply — not exercised by GSUP tests.
-func (m *mockStore) UpsertSubscriber(_ context.Context, _ *models.Subscriber) error  { return nil }
-func (m *mockStore) DeleteSubscriberByIMSI(_ context.Context, _ string) error         { return nil }
-func (m *mockStore) UpsertAUC(_ context.Context, _ *models.AUC) error                 { return nil }
-func (m *mockStore) DeleteAUCByID(_ context.Context, _ int) error                     { return nil }
-func (m *mockStore) UpsertAPN(_ context.Context, _ *models.APN) error                 { return nil }
-func (m *mockStore) DeleteAPNByID(_ context.Context, _ int) error                     { return nil }
+func (m *mockStore) UpsertSubscriber(_ context.Context, _ *models.Subscriber) error       { return nil }
+func (m *mockStore) DeleteSubscriberByIMSI(_ context.Context, _ string) error             { return nil }
+func (m *mockStore) UpsertAUC(_ context.Context, _ *models.AUC) error                     { return nil }
+func (m *mockStore) DeleteAUCByID(_ context.Context, _ int) error                         { return nil }
+func (m *mockStore) UpsertAPN(_ context.Context, _ *models.APN) error                     { return nil }
+func (m *mockStore) DeleteAPNByID(_ context.Context, _ int) error                         { return nil }
 func (m *mockStore) UpsertIMSSubscriber(_ context.Context, _ *models.IMSSubscriber) error { return nil }
-func (m *mockStore) DeleteIMSSubscriberByMSISDN(_ context.Context, _ string) error    { return nil }
-func (m *mockStore) UpsertEIR(_ context.Context, _ *models.EIR) error                 { return nil }
-func (m *mockStore) DeleteEIRByID(_ context.Context, _ int) error                     { return nil }
+func (m *mockStore) DeleteIMSSubscriberByMSISDN(_ context.Context, _ string) error        { return nil }
+func (m *mockStore) UpsertEIR(_ context.Context, _ *models.EIR) error                     { return nil }
+func (m *mockStore) DeleteEIRByID(_ context.Context, _ int) error                         { return nil }
 
 // UDM methods — not exercised by GSUP tests.
 func (m *mockStore) UpdateServingAMF(_ context.Context, _ string, _ *repository.ServingAMFUpdate) error {
@@ -232,7 +234,7 @@ func (m *mockStore) DeleteServingPDUSession(_ context.Context, _ string, _ int) 
 func (m *mockStore) ListServingPDUSessions(_ context.Context, _ string) ([]models.ServingPDUSession, error) {
 	return nil, nil
 }
-func (m *mockStore) StoreMWD(_ context.Context, _, _, _, _ string, _ int, _ uint32) error {
+func (m *mockStore) StoreMWD(_ context.Context, _ *models.MessageWaitingData) error {
 	return nil
 }
 func (m *mockStore) GetMWDForIMSI(_ context.Context, _ string) ([]models.MessageWaitingData, error) {
@@ -268,7 +270,7 @@ func clientReadIPA(t *testing.T, conn net.Conn) (proto, ext byte, payload []byte
 // clientWriteIDResp sends an IPA CCM ID_RESP identifying the test peer.
 func clientWriteIDResp(t *testing.T, conn net.Conn, name string) {
 	t.Helper()
-	nameBytes := []byte(name + "\x00") // null-terminated string
+	nameBytes := []byte(name + "\x00")  // null-terminated string
 	itemLen := byte(1 + len(nameBytes)) // tag byte counts in the length
 	inner := []byte{ccmMsgIDResp, itemLen, ipaTagUnitName}
 	inner = append(inner, nameBytes...)
@@ -617,7 +619,8 @@ func TestGSUP_IMSIEncodeDecode(t *testing.T) {
 
 // TestGSUP_Derive2GKc verifies the 2G KC derivation.
 // Using TS 35.207 Test Set 1 CK/IK:
-//   KC = CK[0:8] ^ CK[8:16] ^ IK[0:8] ^ IK[8:16]
+//
+//	KC = CK[0:8] ^ CK[8:16] ^ IK[0:8] ^ IK[8:16]
 func TestGSUP_Derive2GKc(t *testing.T) {
 	mustHex := func(s string) []byte {
 		b, err := hex.DecodeString(s)

@@ -78,7 +78,7 @@ type Repository interface {
 	UpsertIMSIIMEIHistory(ctx context.Context, imsi, imei, make, model string, matchResponseCode int) error
 
 	// MWD (S6c — Message Waiting Data)
-	StoreMWD(ctx context.Context, imsi, scAddr, scOriginHost, scOriginRealm string, mti int, statusFlags uint32) error
+	StoreMWD(ctx context.Context, rec *models.MessageWaitingData) error
 	GetMWDForIMSI(ctx context.Context, imsi string) ([]models.MessageWaitingData, error)
 	DeleteMWD(ctx context.Context, imsi, scAddr string) error
 

@@ -15,11 +15,11 @@ type PeerLookup interface {
 	GetConn(originHost string) (diam.Conn, bool)
 }
 
-// pendingALSCEntry tracks an in-flight ALSC so MWD is only deleted after the
-// SMS-SC returns a successful ASA (Result-Code 2001).
-type pendingALSCEntry struct {
-	imsi    string
-	scAddr  string
+// pendingALREntry tracks an in-flight ALR so MWD is only deleted after the
+// SMS-SC returns a successful ALA (Result-Code 2001).
+type pendingALREntry struct {
+	imsi   string
+	scAddr string
 }
 
 type Handlers struct {
@@ -28,8 +28,8 @@ type Handlers struct {
 	originHost  string
 	originRealm string
 	peers       PeerLookup
-	// pendingALSC maps Diameter Session-ID → pendingALSCEntry for in-flight ALSC requests.
-	pendingALSC sync.Map
+	// pendingALR maps Diameter Session-ID → pendingALREntry for in-flight ALR requests.
+	pendingALR sync.Map
 }
 
 func NewHandlers(cfg *config.Config, store repository.Repository, log *zap.Logger, peers PeerLookup) *Handlers {

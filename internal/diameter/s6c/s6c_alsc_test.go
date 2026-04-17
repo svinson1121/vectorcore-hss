@@ -3,9 +3,11 @@ package s6c
 import (
 	"bytes"
 	"crypto/tls"
+	"encoding/base64"
 	"errors"
 	"net"
 	"testing"
+	"time"
 
 	"github.com/fiorix/go-diameter/v4/diam"
 	"github.com/fiorix/go-diameter/v4/diam/avp"
@@ -59,12 +61,36 @@ func (p *peerLookupStub) GetConn(originHost string) (diam.Conn, bool) {
 	return conn, ok
 }
 
-func buildASA(t *testing.T, sessionID string, resultCode uint32) *diam.Message {
+func buildALA(t *testing.T, sessionID string, resultCode uint32) *diam.Message {
 	t.Helper()
-	msg := diam.NewRequest(cmdALSC, AppIDS6c, dict.Default).Answer(resultCode)
+	msg := diam.NewRequest(cmdALR, AppIDS6c, dict.Default).Answer(resultCode)
 	msg.NewAVP(avp.SessionID, avp.Mbit, 0, datatype.UTF8String(sessionID))
 	msg.NewAVP(avp.OriginHost, avp.Mbit, 0, datatype.DiameterIdentity("smsc.test.net"))
 	return msg
+}
+
+func buildALAWithExperimentalResult(t *testing.T, sessionID string, resultCode uint32) *diam.Message {
+	t.Helper()
+	msg := diam.NewMessage(cmdALR, 0, AppIDS6c, 0, 0, dict.Default)
+	msg.NewAVP(avp.SessionID, avp.Mbit, 0, datatype.UTF8String(sessionID))
+	msg.NewAVP(avp.OriginHost, avp.Mbit, 0, datatype.DiameterIdentity("smsc.test.net"))
+	msg.NewAVP(avp.ExperimentalResult, avp.Mbit, 0, &diam.GroupedAVP{AVP: []*diam.AVP{
+		diam.NewAVP(avp.VendorID, avp.Mbit, 0, datatype.Unsigned32(Vendor3GPP)),
+		diam.NewAVP(avp.ExperimentalResultCode, avp.Mbit, 0, datatype.Unsigned32(resultCode)),
+	}})
+	return msg
+}
+
+func findGroupedChildAVP(group *diam.GroupedAVP, code uint32, vendorID uint32) *diam.AVP {
+	if group == nil {
+		return nil
+	}
+	for _, child := range group.AVP {
+		if child.Code == code && child.VendorID == vendorID {
+			return child
+		}
+	}
+	return nil
 }
 
 func parseWrittenMessage(t *testing.T, conn *captureConn) *diam.Message {
@@ -108,8 +134,8 @@ func TestALSC_SendUsesStoredOriginRealm(t *testing.T) {
 	if msg.Header.ApplicationID != AppIDS6c {
 		t.Fatalf("Application-ID: got %d, want %d", msg.Header.ApplicationID, AppIDS6c)
 	}
-	if msg.Header.CommandCode != cmdALSC {
-		t.Fatalf("Command-Code: got %d, want %d", msg.Header.CommandCode, cmdALSC)
+	if msg.Header.CommandCode != cmdALR {
+		t.Fatalf("Command-Code: got %d, want %d", msg.Header.CommandCode, cmdALR)
 	}
 
 	dstHost := findAVPDirect(msg, avp.DestinationHost, 0)
@@ -151,15 +177,15 @@ func TestALSC_SendStoresPendingSession(t *testing.T) {
 	msg := parseWrittenMessage(t, conn)
 	sidAVP := findAVPDirect(msg, avp.SessionID, 0)
 	if sidAVP == nil {
-		t.Fatal("missing Session-Id in ALSC request")
+		t.Fatal("missing Session-Id in ALR request")
 	}
 	sid := string(sidAVP.Data.(datatype.UTF8String))
 
-	entry, ok := h.pendingALSC.Load(sid)
+	entry, ok := h.pendingALR.Load(sid)
 	if !ok {
-		t.Fatal("pending ALSC session not recorded")
+		t.Fatal("pending ALR session not recorded")
 	}
-	pending := entry.(pendingALSCEntry)
+	pending := entry.(pendingALREntry)
 	if pending.imsi != imsi {
 		t.Fatalf("pending IMSI: got %q, want %q", pending.imsi, imsi)
 	}
@@ -171,9 +197,9 @@ func TestALSC_SendStoresPendingSession(t *testing.T) {
 func TestASA_SuccessDeletesMWD(t *testing.T) {
 	store := newS6cStore()
 	h := newTestHandlers(store)
-	h.pendingALSC.Store("sid-success", pendingALSCEntry{imsi: "001010000000102", scAddr: "12125550002"})
+	h.pendingALR.Store("sid-success", pendingALREntry{imsi: "001010000000102", scAddr: "12125550002"})
 
-	h.ASA(nil, buildASA(t, "sid-success", diamResultSuccess))
+	h.ALA(nil, buildALA(t, "sid-success", diamResultSuccess))
 
 	if len(store.deletedMWD) != 1 {
 		t.Fatalf("expected 1 DeleteMWD call, got %d", len(store.deletedMWD))
@@ -181,23 +207,38 @@ func TestASA_SuccessDeletesMWD(t *testing.T) {
 	if got := store.deletedMWD[0]; got.imsi != "001010000000102" || got.scAddr != "12125550002" {
 		t.Fatalf("DeleteMWD args = %+v, want imsi=%q scAddr=%q", got, "001010000000102", "12125550002")
 	}
-	if _, ok := h.pendingALSC.Load("sid-success"); ok {
-		t.Fatal("pending ALSC session still present after successful ASA")
+	if _, ok := h.pendingALR.Load("sid-success"); ok {
+		t.Fatal("pending ALR session still present after successful ALA")
 	}
 }
 
 func TestASA_FailureRetainsMWD(t *testing.T) {
 	store := newS6cStore()
 	h := newTestHandlers(store)
-	h.pendingALSC.Store("sid-failure", pendingALSCEntry{imsi: "001010000000103", scAddr: "12125550003"})
+	h.pendingALR.Store("sid-failure", pendingALREntry{imsi: "001010000000103", scAddr: "12125550003"})
 
-	h.ASA(nil, buildASA(t, "sid-failure", 5005))
+	h.ALA(nil, buildALA(t, "sid-failure", 5005))
 
 	if len(store.deletedMWD) != 0 {
 		t.Fatalf("DeleteMWD called %d times, want 0", len(store.deletedMWD))
 	}
-	if _, ok := h.pendingALSC.Load("sid-failure"); ok {
-		t.Fatal("pending ALSC session still present after failure ASA")
+	if _, ok := h.pendingALR.Load("sid-failure"); ok {
+		t.Fatal("pending ALR session still present after failure ALA")
+	}
+}
+
+func TestASA_ExperimentalResultFailureRetainsMWD(t *testing.T) {
+	store := newS6cStore()
+	h := newTestHandlers(store)
+	h.pendingALR.Store("sid-exp-failure", pendingALREntry{imsi: "001010000000115", scAddr: "12125550015"})
+
+	h.ALA(nil, buildALAWithExperimentalResult(t, "sid-exp-failure", 5001))
+
+	if len(store.deletedMWD) != 0 {
+		t.Fatalf("DeleteMWD called %d times, want 0", len(store.deletedMWD))
+	}
+	if _, ok := h.pendingALR.Load("sid-exp-failure"); ok {
+		t.Fatal("pending ALR session still present after Experimental-Result failure ALA")
 	}
 }
 
@@ -205,7 +246,7 @@ func TestASA_UnknownSessionDoesNotDeleteMWD(t *testing.T) {
 	store := newS6cStore()
 	h := newTestHandlers(store)
 
-	h.ASA(nil, buildASA(t, "sid-unknown", diamResultSuccess))
+	h.ALA(nil, buildALA(t, "sid-unknown", diamResultSuccess))
 
 	if len(store.deletedMWD) != 0 {
 		t.Fatalf("DeleteMWD called %d times, want 0", len(store.deletedMWD))
@@ -215,18 +256,37 @@ func TestASA_UnknownSessionDoesNotDeleteMWD(t *testing.T) {
 func TestASA_MissingSessionIDDoesNotDeleteMWD(t *testing.T) {
 	store := newS6cStore()
 	h := newTestHandlers(store)
-	h.pendingALSC.Store("sid-present", pendingALSCEntry{imsi: "001010000000104", scAddr: "12125550004"})
+	h.pendingALR.Store("sid-present", pendingALREntry{imsi: "001010000000104", scAddr: "12125550004"})
 
-	msg := diam.NewMessage(cmdALSC, 0, AppIDS6c, 0, 0, dict.Default)
+	msg := diam.NewMessage(cmdALR, 0, AppIDS6c, 0, 0, dict.Default)
 	msg.NewAVP(avp.ResultCode, avp.Mbit, 0, datatype.Unsigned32(diamResultSuccess))
 
-	h.ASA(nil, msg)
+	h.ALA(nil, msg)
 
 	if len(store.deletedMWD) != 0 {
 		t.Fatalf("DeleteMWD called %d times, want 0", len(store.deletedMWD))
 	}
-	if _, ok := h.pendingALSC.Load("sid-present"); !ok {
-		t.Fatal("pending ALSC session removed for malformed ASA without Session-Id")
+	if _, ok := h.pendingALR.Load("sid-present"); !ok {
+		t.Fatal("pending ALR session removed for malformed ALA without Session-Id")
+	}
+}
+
+func TestASA_MissingResultKeepsMWDRetryState(t *testing.T) {
+	store := newS6cStore()
+	h := newTestHandlers(store)
+	h.pendingALR.Store("sid-no-result", pendingALREntry{imsi: "001010000000116", scAddr: "12125550016"})
+
+	msg := diam.NewMessage(cmdALR, 0, AppIDS6c, 0, 0, dict.Default)
+	msg.NewAVP(avp.SessionID, avp.Mbit, 0, datatype.UTF8String("sid-no-result"))
+	msg.NewAVP(avp.OriginHost, avp.Mbit, 0, datatype.DiameterIdentity("smsc.test.net"))
+
+	h.ALA(nil, msg)
+
+	if len(store.deletedMWD) != 0 {
+		t.Fatalf("DeleteMWD called %d times, want 0", len(store.deletedMWD))
+	}
+	if _, ok := h.pendingALR.Load("sid-no-result"); ok {
+		t.Fatal("pending ALR session still present after ALA with missing result")
 	}
 }
 
@@ -311,7 +371,7 @@ func TestSendALSCForIMSI_MultipleMWDRecords(t *testing.T) {
 	sidA := string(findAVPDirect(msgA, avp.SessionID, 0).Data.(datatype.UTF8String))
 	sidB := string(findAVPDirect(msgB, avp.SessionID, 0).Data.(datatype.UTF8String))
 	if sidA == sidB {
-		t.Fatal("multiple ALSC requests reused the same Session-Id")
+		t.Fatal("multiple ALR requests reused the same Session-Id")
 	}
 }
 
@@ -353,11 +413,326 @@ func TestSendALSCForIMSI_SendFailureRetainsMWD(t *testing.T) {
 		t.Fatalf("DeleteMWD called %d times, want 0", len(store.deletedMWD))
 	}
 	var pendingCount int
-	h.pendingALSC.Range(func(_, _ any) bool {
+	h.pendingALR.Range(func(_, _ any) bool {
 		pendingCount++
 		return true
 	})
 	if pendingCount != 0 {
-		t.Fatalf("pending ALSC entries = %d, want 0 after send failure", pendingCount)
+		t.Fatalf("pending ALR entries = %d, want 0 after send failure", pendingCount)
+	}
+}
+
+func TestSendALRForIMSI_RecordsAlertAttemptMetadata(t *testing.T) {
+	store := newS6cStore()
+	imsi := "001010000000113"
+	store.addSubscriber(&models.Subscriber{IMSI: imsi})
+	store.mwds[imsi] = []models.MessageWaitingData{{
+		IMSI:           imsi,
+		SCAddress:      "12125550013",
+		SCOriginHost:   "smsc6.test.net",
+		SCOriginRealm:  "smsc.realm.net",
+		MWDStatusFlags: MWDStatusMNRF,
+	}}
+
+	conn := &captureConn{}
+	peers := &peerLookupStub{conns: map[string]diam.Conn{"smsc6.test.net": conn}}
+	h := newTestHandlers(store)
+	h.peers = peers
+
+	h.SendALRForIMSI(imsi, AlertTriggerUserAvailable)
+
+	if len(store.mwds[imsi]) != 1 {
+		t.Fatalf("MWD record count = %d, want 1", len(store.mwds[imsi]))
+	}
+	rec := store.mwds[imsi][0]
+	if rec.LastAlertTrigger == nil || *rec.LastAlertTrigger != string(AlertTriggerUserAvailable) {
+		t.Fatalf("LastAlertTrigger = %+v, want %q", rec.LastAlertTrigger, AlertTriggerUserAvailable)
+	}
+	if rec.LastAlertAttemptAt == nil {
+		t.Fatal("LastAlertAttemptAt not recorded")
+	}
+	if rec.AlertAttemptCount != 1 {
+		t.Fatalf("AlertAttemptCount = %d, want 1", rec.AlertAttemptCount)
+	}
+}
+
+func TestSendALRForIMSI_IncludesAbsentUserDiagnosticSM(t *testing.T) {
+	store := newS6cStore()
+	imsi := "001010000000117"
+	diag := uint32(77)
+	store.addSubscriber(&models.Subscriber{IMSI: imsi})
+	store.mwds[imsi] = []models.MessageWaitingData{{
+		IMSI:                   imsi,
+		SCAddress:              "12125550015",
+		SCOriginHost:           "smsc8.test.net",
+		SCOriginRealm:          "smsc.realm.net",
+		MWDStatusFlags:         MWDStatusMNRF,
+		AbsentUserDiagnosticSM: &diag,
+	}}
+
+	conn := &captureConn{}
+	peers := &peerLookupStub{conns: map[string]diam.Conn{"smsc8.test.net": conn}}
+	h := newTestHandlers(store)
+	h.peers = peers
+
+	h.SendALRForIMSI(imsi, AlertTriggerUserAvailable)
+
+	msg := parseWrittenMessage(t, conn)
+	diagAVP := findAVPDirect(msg, avpAbsentUserDiagnosticSM, Vendor3GPP)
+	if diagAVP == nil {
+		t.Fatal("missing Absent-User-Diagnostic-SM AVP in ALR")
+	}
+	if got := uint32(diagAVP.Data.(datatype.Unsigned32)); got != diag {
+		t.Fatalf("Absent-User-Diagnostic-SM: got %d, want %d", got, diag)
+	}
+}
+
+func TestSendALRForIMSI_IncludesUserIdentifier(t *testing.T) {
+	store := newS6cStore()
+	imsi := "001010000000118"
+	msisdn := "12125550016"
+	store.addSubscriber(&models.Subscriber{IMSI: imsi, MSISDN: ptr(msisdn)})
+	store.mwds[imsi] = []models.MessageWaitingData{{
+		IMSI:           imsi,
+		SCAddress:      "12125550017",
+		SCOriginHost:   "smsc9.test.net",
+		SCOriginRealm:  "smsc.realm.net",
+		MWDStatusFlags: MWDStatusMNRF,
+	}}
+
+	conn := &captureConn{}
+	peers := &peerLookupStub{conns: map[string]diam.Conn{"smsc9.test.net": conn}}
+	h := newTestHandlers(store)
+	h.peers = peers
+
+	h.SendALRForIMSI(imsi, AlertTriggerUserAvailable)
+
+	msg := parseWrittenMessage(t, conn)
+	userIDAVP := findAVPDirect(msg, avpUserIdentifier, Vendor3GPP)
+	if userIDAVP == nil {
+		t.Fatal("missing User-Identifier AVP in ALR")
+	}
+	group, ok := userIDAVP.Data.(*diam.GroupedAVP)
+	if !ok {
+		t.Fatalf("User-Identifier type = %T, want *diam.GroupedAVP", userIDAVP.Data)
+	}
+	userNameAVP := findGroupedChildAVP(group, avp.UserName, 0)
+	if userNameAVP == nil {
+		t.Fatal("User-Identifier missing User-Name child")
+	}
+	if got := string(userNameAVP.Data.(datatype.UTF8String)); got != imsi {
+		t.Fatalf("User-Identifier User-Name: got %q, want %q", got, imsi)
+	}
+	msisdnAVP := findGroupedChildAVP(group, avpMSISDN, Vendor3GPP)
+	if msisdnAVP == nil {
+		t.Fatal("User-Identifier missing MSISDN child")
+	}
+	if got := decodeMSISDN(msisdnAVP.Data.(datatype.OctetString)); got != msisdn {
+		t.Fatalf("User-Identifier MSISDN: got %q, want %q", got, msisdn)
+	}
+}
+
+func TestSendALRForIMSI_IncludesServingNodeAndAlertEvent(t *testing.T) {
+	store := newS6cStore()
+	imsi := "001010000000119"
+	mme := "mme1.epc.test.net"
+	mmeRealm := "epc.test.net"
+	mmeNumber := "12125550018"
+	smsRegistered := true
+	store.addSubscriber(&models.Subscriber{
+		IMSI:                imsi,
+		ServingMME:          ptr(mme),
+		ServingMMERealm:     ptr(mmeRealm),
+		MMENumberForMTSMS:   ptr(mmeNumber),
+		MMERegisteredForSMS: ptr(smsRegistered),
+	})
+	store.mwds[imsi] = []models.MessageWaitingData{{
+		IMSI:           imsi,
+		SCAddress:      "12125550019",
+		SCOriginHost:   "smsc10.test.net",
+		SCOriginRealm:  "smsc.realm.net",
+		MWDStatusFlags: MWDStatusMNRF,
+	}}
+
+	conn := &captureConn{}
+	peers := &peerLookupStub{conns: map[string]diam.Conn{"smsc10.test.net": conn}}
+	h := newTestHandlers(store)
+	h.peers = peers
+
+	h.SendALRForIMSI(imsi, AlertTriggerUserAvailable)
+
+	msg := parseWrittenMessage(t, conn)
+	nodeAVP := findAVPDirect(msg, avpServingNode, Vendor3GPP)
+	if nodeAVP == nil {
+		t.Fatal("missing Serving-Node AVP in ALR")
+	}
+	group, ok := nodeAVP.Data.(*diam.GroupedAVP)
+	if !ok {
+		t.Fatalf("Serving-Node type = %T, want *diam.GroupedAVP", nodeAVP.Data)
+	}
+	mmeNameAVP := findGroupedChildAVP(group, avpMMEName, Vendor3GPP)
+	if mmeNameAVP == nil {
+		t.Fatal("Serving-Node missing MME-Name")
+	}
+	if got := string(mmeNameAVP.Data.(datatype.DiameterIdentity)); got != mme {
+		t.Fatalf("Serving-Node MME-Name: got %q, want %q", got, mme)
+	}
+	alertEventAVP := findAVPDirect(msg, avpSMSGMSCAlertEvent, Vendor3GPP)
+	if alertEventAVP == nil {
+		t.Fatal("missing SMS-GMSC-Alert-Event AVP in ALR")
+	}
+	if got := uint32(alertEventAVP.Data.(datatype.Unsigned32)); got != SMSGMSCAlertEventUEAvailableForMTSMS {
+		t.Fatalf("SMS-GMSC-Alert-Event: got 0x%x, want 0x%x", got, SMSGMSCAlertEventUEAvailableForMTSMS)
+	}
+}
+
+func TestSendALRForIMSI_IncludesSMSMICorrelationID(t *testing.T) {
+	store := newS6cStore()
+	imsi := "001010000000120"
+	rawPayload := []byte{
+		0x00, 0x00, 0x0c, 0xfd, 0x80, 0x00, 0x00, 0x14, 0x00, 0x00, 0x28, 0xaf,
+		'h', 's', 's', '1',
+	}
+	encoded := base64.StdEncoding.EncodeToString(rawPayload)
+	store.addSubscriber(&models.Subscriber{IMSI: imsi})
+	store.mwds[imsi] = []models.MessageWaitingData{{
+		IMSI:               imsi,
+		SCAddress:          "12125550020",
+		SCOriginHost:       "smsc11.test.net",
+		SCOriginRealm:      "smsc.realm.net",
+		MWDStatusFlags:     MWDStatusMNRF,
+		SMSMICorrelationID: &encoded,
+	}}
+
+	conn := &captureConn{}
+	peers := &peerLookupStub{conns: map[string]diam.Conn{"smsc11.test.net": conn}}
+	h := newTestHandlers(store)
+	h.peers = peers
+
+	h.SendALRForIMSI(imsi, AlertTriggerUserAvailable)
+
+	msg := parseWrittenMessage(t, conn)
+	smsmiAVP := findAVPDirect(msg, avpSMSMICorrelationID, Vendor3GPP)
+	if smsmiAVP == nil {
+		t.Fatal("missing SMSMI-Correlation-ID AVP in ALR")
+	}
+	if got := []byte(smsmiAVP.Data.(datatype.OctetString)); !bytes.Equal(got, rawPayload) {
+		t.Fatalf("SMSMI-Correlation-ID payload = %x, want %x", got, rawPayload)
+	}
+}
+
+func TestSendALRForIMSI_IncludesMaximumUEAvailabilityTime(t *testing.T) {
+	store := newS6cStore()
+	imsi := "001010000000121"
+	store.addSubscriber(&models.Subscriber{IMSI: imsi})
+	store.mwds[imsi] = []models.MessageWaitingData{{
+		IMSI:           imsi,
+		SCAddress:      "12125550021",
+		SCOriginHost:   "smsc12.test.net",
+		SCOriginRealm:  "smsc.realm.net",
+		MWDStatusFlags: MWDStatusMCEF,
+	}}
+
+	conn := &captureConn{}
+	peers := &peerLookupStub{conns: map[string]diam.Conn{"smsc12.test.net": conn}}
+	h := newTestHandlers(store)
+	h.peers = peers
+	maxAvail := time.Unix(1735689600, 0).UTC()
+
+	h.SendALRForIMSIWithMaximumAvailability(imsi, AlertTriggerMemoryAvailable, &maxAvail)
+
+	msg := parseWrittenMessage(t, conn)
+	a := findAVPDirect(msg, avpMaximumUEAvailabilityTime, Vendor3GPP)
+	if a == nil {
+		t.Fatal("missing Maximum-UE-Availability-Time AVP in ALR")
+	}
+	got := time.Time(a.Data.(datatype.Time)).UTC()
+	if !got.Equal(maxAvail) {
+		t.Fatalf("Maximum-UE-Availability-Time: got %s, want %s", got, maxAvail)
+	}
+}
+
+func TestSendALRForIMSI_SendFailureDoesNotRecordAlertAttemptMetadata(t *testing.T) {
+	store := newS6cStore()
+	imsi := "001010000000114"
+	store.addSubscriber(&models.Subscriber{IMSI: imsi})
+	store.mwds[imsi] = []models.MessageWaitingData{{
+		IMSI:           imsi,
+		SCAddress:      "12125550014",
+		SCOriginHost:   "smsc7.test.net",
+		SCOriginRealm:  "smsc.realm.net",
+		MWDStatusFlags: MWDStatusMNRF,
+	}}
+
+	conn := &captureConn{writeErr: errors.New("write failed")}
+	peers := &peerLookupStub{conns: map[string]diam.Conn{"smsc7.test.net": conn}}
+	h := newTestHandlers(store)
+	h.peers = peers
+
+	h.SendALRForIMSI(imsi, AlertTriggerUserAvailable)
+
+	rec := store.mwds[imsi][0]
+	if rec.LastAlertTrigger != nil {
+		t.Fatalf("LastAlertTrigger = %+v, want nil on send failure", rec.LastAlertTrigger)
+	}
+	if rec.LastAlertAttemptAt != nil {
+		t.Fatal("LastAlertAttemptAt recorded on send failure")
+	}
+	if rec.AlertAttemptCount != 0 {
+		t.Fatalf("AlertAttemptCount = %d, want 0 on send failure", rec.AlertAttemptCount)
+	}
+}
+
+func TestSendAlertForIMSI_UserAvailableSkipsMemoryCapacityMWD(t *testing.T) {
+	store := newS6cStore()
+	imsi := "001010000000111"
+	store.addSubscriber(&models.Subscriber{IMSI: imsi})
+	store.mwds[imsi] = []models.MessageWaitingData{{
+		IMSI:           imsi,
+		SCAddress:      "12125550011",
+		SCOriginHost:   "smsc4.test.net",
+		SCOriginRealm:  "smsc.realm.net",
+		MWDStatusFlags: MWDStatusMCEF,
+	}}
+
+	conn := &captureConn{}
+	peers := &peerLookupStub{conns: map[string]diam.Conn{"smsc4.test.net": conn}}
+	h := newTestHandlers(store)
+	h.peers = peers
+
+	h.SendALRForIMSI(imsi, AlertTriggerUserAvailable)
+
+	if len(peers.lookups) != 0 {
+		t.Fatalf("peer lookup calls = %d, want 0", len(peers.lookups))
+	}
+	if conn.buf.Len() != 0 {
+		t.Fatal("unexpected alert sent for memory-capacity MWD on user-available trigger")
+	}
+}
+
+func TestSendAlertForIMSI_MemoryAvailableSendsForMCEF(t *testing.T) {
+	store := newS6cStore()
+	imsi := "001010000000112"
+	store.addSubscriber(&models.Subscriber{IMSI: imsi})
+	store.mwds[imsi] = []models.MessageWaitingData{{
+		IMSI:           imsi,
+		SCAddress:      "12125550012",
+		SCOriginHost:   "smsc5.test.net",
+		SCOriginRealm:  "smsc.realm.net",
+		MWDStatusFlags: MWDStatusMCEF,
+	}}
+
+	conn := &captureConn{}
+	peers := &peerLookupStub{conns: map[string]diam.Conn{"smsc5.test.net": conn}}
+	h := newTestHandlers(store)
+	h.peers = peers
+
+	h.SendALRForIMSI(imsi, AlertTriggerMemoryAvailable)
+
+	if len(peers.lookups) != 1 {
+		t.Fatalf("peer lookup calls = %d, want 1", len(peers.lookups))
+	}
+	if conn.buf.Len() == 0 {
+		t.Fatal("expected alert to be sent for memory-available trigger")
 	}
 }

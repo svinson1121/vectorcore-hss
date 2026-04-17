@@ -33,6 +33,8 @@ package s6c
 
 import (
 	"context"
+	"encoding/base64"
+	"fmt"
 	"os"
 	"testing"
 
@@ -107,8 +109,12 @@ type s6cStore struct {
 
 type storedMWDArgs struct {
 	imsi, scAddr, scOriginHost, scOriginRealm string
+	smsmiCorrelationID                        *string
+	absentUserDiagnosticSM                    *uint32
+	lastAlertTrigger                          *string
 	mti                                       int
 	statusFlags                               uint32
+	alertAttemptCount                         uint32
 }
 
 type deletedMWDArgs struct {
@@ -144,16 +150,31 @@ func (s *s6cStore) GetSubscriberByMSISDN(_ context.Context, msisdn string) (*mod
 	return nil, repository.ErrNotFound
 }
 
-func (s *s6cStore) StoreMWD(_ context.Context, imsi, scAddr, scOriginHost, scOriginRealm string, mti int, statusFlags uint32) error {
-	s.storedMWD = append(s.storedMWD, storedMWDArgs{imsi, scAddr, scOriginHost, scOriginRealm, mti, statusFlags})
-	s.mwds[imsi] = append(s.mwds[imsi], models.MessageWaitingData{
-		IMSI:           imsi,
-		SCAddress:      scAddr,
-		SCOriginHost:   scOriginHost,
-		SCOriginRealm:  scOriginRealm,
-		SMRPMTI:        mti,
-		MWDStatusFlags: statusFlags,
+func (s *s6cStore) StoreMWD(_ context.Context, rec *models.MessageWaitingData) error {
+	if rec == nil {
+		return nil
+	}
+	s.storedMWD = append(s.storedMWD, storedMWDArgs{
+		imsi:                   rec.IMSI,
+		scAddr:                 rec.SCAddress,
+		scOriginHost:           rec.SCOriginHost,
+		scOriginRealm:          rec.SCOriginRealm,
+		smsmiCorrelationID:     rec.SMSMICorrelationID,
+		absentUserDiagnosticSM: rec.AbsentUserDiagnosticSM,
+		lastAlertTrigger:       rec.LastAlertTrigger,
+		mti:                    rec.SMRPMTI,
+		statusFlags:            rec.MWDStatusFlags,
+		alertAttemptCount:      rec.AlertAttemptCount,
 	})
+	records := s.mwds[rec.IMSI]
+	for i := range records {
+		if records[i].SCAddress == rec.SCAddress {
+			records[i] = *rec
+			s.mwds[rec.IMSI] = records
+			return nil
+		}
+	}
+	s.mwds[rec.IMSI] = append(records, *rec)
 	return nil
 }
 
@@ -334,6 +355,10 @@ func buildSRISMByIMSI(t *testing.T, imsi string) *diam.Message {
 // buildRDSMByMSISDN builds a Report-SM-Delivery-Status request.
 // outcomeAVP may be nil (absent outcome) or a pre-built SM-Delivery-Outcome grouped AVP.
 func buildRDSMByMSISDN(t *testing.T, msisdn, scAddr string, outcomeAVP *diam.AVP) *diam.Message {
+	return buildRDSMByMSISDNWithFlags(t, msisdn, scAddr, outcomeAVP, 0)
+}
+
+func buildRDSMByMSISDNWithFlags(t *testing.T, msisdn, scAddr string, outcomeAVP *diam.AVP, rdrFlags uint32) *diam.Message {
 	t.Helper()
 	req := diam.NewRequest(cmdRDSM, AppIDS6c, dict.Default)
 	req.NewAVP(avp.SessionID, avp.Mbit, 0, datatype.UTF8String("smsc.test;3;rdsm"))
@@ -345,6 +370,9 @@ func buildRDSMByMSISDN(t *testing.T, msisdn, scAddr string, outcomeAVP *diam.AVP
 		datatype.OctetString(encodeMSISDNBytes(msisdn)))
 	req.NewAVP(avpSCAddress, avp.Mbit|avp.Vbit, Vendor3GPP,
 		datatype.OctetString(encodeMSISDNBytes(scAddr)))
+	if rdrFlags != 0 {
+		req.NewAVP(avpRDRFlags, avp.Mbit|avp.Vbit, Vendor3GPP, datatype.Unsigned32(rdrFlags))
+	}
 	if outcomeAVP != nil {
 		req.InsertAVP(outcomeAVP)
 	}
@@ -369,16 +397,46 @@ func buildRDSMByIMSI(t *testing.T, imsi, scAddr string, outcomeAVP *diam.AVP) *d
 	return req
 }
 
+func buildUserIdentifierAVPForTest(imsi string, msisdn *string) *diam.AVP {
+	children := []*diam.AVP{}
+	if imsi != "" {
+		children = append(children, diam.NewAVP(avp.UserName, avp.Mbit, 0, datatype.UTF8String(imsi)))
+	}
+	if msisdn != nil {
+		children = append(children, diam.NewAVP(avpMSISDN, avp.Mbit|avp.Vbit, Vendor3GPP,
+			datatype.OctetString(encodeMSISDNBytes(*msisdn))))
+	}
+	return diam.NewAVP(avpUserIdentifier, avp.Mbit|avp.Vbit, Vendor3GPP, &diam.GroupedAVP{AVP: children})
+}
+
 // mmeOutcomeAVP builds an SM-Delivery-Outcome containing an MME-Delivery-Outcome.
 func mmeOutcomeAVP(cause int32) *diam.AVP {
+	return mmeOutcomeWithDiagnosticAVP(cause, nil)
+}
+
+func mmeOutcomeWithDiagnosticAVP(cause int32, diag *uint32) *diam.AVP {
+	children := []*diam.AVP{
+		diam.NewAVP(avpSMDeliveryCause, avp.Mbit|avp.Vbit, Vendor3GPP,
+			datatype.Enumerated(cause)),
+	}
+	if diag != nil {
+		children = append(children,
+			diam.NewAVP(avpAbsentUserDiagnosticSM, avp.Mbit|avp.Vbit, Vendor3GPP,
+				datatype.Unsigned32(*diag)),
+		)
+	}
 	return diam.NewAVP(avpSMDeliveryOutcome, avp.Mbit|avp.Vbit, Vendor3GPP,
 		&diam.GroupedAVP{AVP: []*diam.AVP{
 			diam.NewAVP(avpMMEDeliveryOutcome, avp.Mbit|avp.Vbit, Vendor3GPP,
-				&diam.GroupedAVP{AVP: []*diam.AVP{
-					diam.NewAVP(avpSMDeliveryCause, avp.Mbit|avp.Vbit, Vendor3GPP,
-						datatype.Enumerated(cause)),
-				}}),
+				&diam.GroupedAVP{AVP: children}),
 		}})
+}
+
+func smsmiCorrelationIDAVP() *diam.AVP {
+	return diam.NewAVP(avpSMSMICorrelationID, avp.Vbit, Vendor3GPP, datatype.OctetString([]byte{
+		0x00, 0x00, 0x0c, 0xfd, 0x80, 0x00, 0x00, 0x14, 0x00, 0x00, 0x28, 0xaf,
+		'h', 's', 's', '1',
+	}))
 }
 
 // sgsnOutcomeAVP builds an SM-Delivery-Outcome containing an SGSN-Delivery-Outcome.
@@ -470,6 +528,33 @@ func requireMSISDN(t *testing.T, msg *diam.Message, want string) {
 	got := decodeMSISDN(a.Data.(datatype.OctetString))
 	if got != want {
 		t.Errorf("MSISDN: got %q, want %q", got, want)
+	}
+}
+
+func requireUserIdentifier(t *testing.T, msg *diam.Message, wantIMSI string, wantMSISDN *string) {
+	t.Helper()
+	a := findAVPDirect(msg, avpUserIdentifier, Vendor3GPP)
+	if a == nil {
+		t.Fatal("missing User-Identifier AVP")
+	}
+	group, ok := a.Data.(*diam.GroupedAVP)
+	if !ok {
+		t.Fatalf("User-Identifier type = %T, want *diam.GroupedAVP", a.Data)
+	}
+	if userNameAVP := findGroupedChildAVP(group, avp.UserName, 0); userNameAVP == nil {
+		t.Fatal("User-Identifier missing User-Name child")
+	} else if got := string(userNameAVP.Data.(datatype.UTF8String)); got != wantIMSI {
+		t.Fatalf("User-Identifier User-Name: got %q, want %q", got, wantIMSI)
+	}
+	if wantMSISDN == nil {
+		return
+	}
+	msisdnAVP := findGroupedChildAVP(group, avpMSISDN, Vendor3GPP)
+	if msisdnAVP == nil {
+		t.Fatal("User-Identifier missing MSISDN child")
+	}
+	if got := decodeMSISDN(msisdnAVP.Data.(datatype.OctetString)); got != *wantMSISDN {
+		t.Fatalf("User-Identifier MSISDN: got %q, want %q", got, *wantMSISDN)
 	}
 }
 
@@ -960,16 +1045,18 @@ func TestRSDS_AbsentUser(t *testing.T) {
 	msisdn := "33612000002"
 	scAddr := "33600000002"
 	imsi := "001010000000011"
+	diagCode := uint32(77)
 	store.addSubscriber(&models.Subscriber{IMSI: imsi, MSISDN: ptr(msisdn)})
 
 	h := newTestHandlers(store)
 	ans, err := h.RDSMR(nil, buildRDSMByMSISDN(t, msisdn, scAddr,
-		mmeOutcomeAVP(SMDeliveryCauseAbsentUser)))
+		mmeOutcomeWithDiagnosticAVP(SMDeliveryCauseAbsentUser, &diagCode)))
 	if err != nil {
 		t.Fatalf("RDSMR returned error: %v", err)
 	}
 
 	requireResultCode(t, ans, 2001)
+	requireUserIdentifier(t, ans, imsi, ptr(msisdn))
 
 	// TS 29.338 §5.3.2.4 / §7.3.12: MNRF bit (0x02) must be set in MWD-Status
 	requireMWDStatus(t, ans, MWDStatusMNRF)
@@ -984,6 +1071,9 @@ func TestRSDS_AbsentUser(t *testing.T) {
 	}
 	if store.storedMWD[0].imsi != imsi {
 		t.Errorf("StoreMWD imsi: got %q, want %q", store.storedMWD[0].imsi, imsi)
+	}
+	if store.storedMWD[0].absentUserDiagnosticSM == nil || *store.storedMWD[0].absentUserDiagnosticSM != diagCode {
+		t.Fatalf("StoreMWD absent_user_diagnostic_sm = %+v, want %d", store.storedMWD[0].absentUserDiagnosticSM, diagCode)
 	}
 }
 
@@ -1006,6 +1096,7 @@ func TestRSDS_MemoryCapacityExceeded(t *testing.T) {
 	}
 
 	requireResultCode(t, ans, 2001)
+	requireUserIdentifier(t, ans, imsi, ptr(msisdn))
 
 	// TS 29.338 §7.3.12: MCEF bit (0x04) must be set
 	requireMWDStatus(t, ans, MWDStatusMCEF)
@@ -1036,11 +1127,157 @@ func TestRSDS_AbsentOutcome(t *testing.T) {
 	}
 
 	requireResultCode(t, ans, 2001)
+	requireUserIdentifier(t, ans, imsi, ptr(msisdn))
 	// TS 29.338 §5.3.2.4: absent outcome → treat as AbsentUser → MNRF
 	requireMWDStatus(t, ans, MWDStatusMNRF)
 
 	if len(store.storedMWD) != 1 || store.storedMWD[0].statusFlags != MWDStatusMNRF {
 		t.Errorf("absent outcome: expected MNRF MWD stored, got storedMWD=%v", store.storedMWD)
+	}
+}
+
+// TestRSDS_SingleAttemptDeliverySkipsMWDStore verifies that the HSS does not
+// add MWD retry state when the Single-Attempt-Delivery bit is set in RDR-Flags.
+func TestRSDS_SingleAttemptDeliverySkipsMWDStore(t *testing.T) {
+	store := newS6cStore()
+	msisdn := "33612000008"
+	scAddr := "33600000008"
+	imsi := "001010000000017"
+	store.addSubscriber(&models.Subscriber{IMSI: imsi, MSISDN: ptr(msisdn)})
+
+	h := newTestHandlers(store)
+	ans, err := h.RDSMR(nil, buildRDSMByMSISDNWithFlags(t, msisdn, scAddr,
+		mmeOutcomeAVP(SMDeliveryCauseAbsentUser), RDRFlagsSingleAttemptDelivery))
+	if err != nil {
+		t.Fatalf("RDSMR returned error: %v", err)
+	}
+
+	requireResultCode(t, ans, 2001)
+	requireNoAVP(t, ans, avpMWDStatus, Vendor3GPP)
+
+	if len(store.storedMWD) != 0 {
+		t.Fatalf("StoreMWD called %d times, want 0 for Single-Attempt-Delivery", len(store.storedMWD))
+	}
+	if len(store.mwds[imsi]) != 0 {
+		t.Fatalf("MWD records remaining = %d, want 0 for Single-Attempt-Delivery", len(store.mwds[imsi]))
+	}
+}
+
+func TestRSDS_MismatchedMSISDNReturnsStoredMSISDN(t *testing.T) {
+	store := newS6cStore()
+	storedMSISDN := "33612000009"
+	requestMSISDN := "33612000999"
+	scAddr := "33600000009"
+	imsi := "001010000000018"
+	store.addSubscriber(&models.Subscriber{IMSI: imsi, MSISDN: ptr(storedMSISDN)})
+
+	h := newTestHandlers(store)
+	req := buildRDSMByIMSI(t, imsi, scAddr, mmeOutcomeAVP(SMDeliveryCauseAbsentUser))
+	req.NewAVP(avpMSISDN, avp.Mbit|avp.Vbit, Vendor3GPP,
+		datatype.OctetString(encodeMSISDNBytes(requestMSISDN)))
+	ans, err := h.RDSMR(nil, req)
+	if err != nil {
+		t.Fatalf("RDSMR returned error: %v", err)
+	}
+
+	requireResultCode(t, ans, 2001)
+	requireUserIdentifier(t, ans, imsi, ptr(storedMSISDN))
+}
+
+func TestRSDS_MWDListFullReturnsExperimentalResult(t *testing.T) {
+	store := newS6cStore()
+	msisdn := "33612000010"
+	scAddr := "33600000999"
+	imsi := "001010000000019"
+	store.addSubscriber(&models.Subscriber{IMSI: imsi, MSISDN: ptr(msisdn)})
+	for i := 0; i < maxMWDEntriesPerSubscriber; i++ {
+		store.mwds[imsi] = append(store.mwds[imsi], models.MessageWaitingData{
+			IMSI:      imsi,
+			SCAddress: fmt.Sprintf("33600000%03d", i),
+		})
+	}
+
+	h := newTestHandlers(store)
+	ans, err := h.RDSMR(nil, buildRDSMByMSISDN(t, msisdn, scAddr,
+		mmeOutcomeAVP(SMDeliveryCauseAbsentUser)))
+	if err != nil {
+		t.Fatalf("RDSMR returned unexpected error: %v", err)
+	}
+
+	requireExperimentalResultCode(t, ans, 5558)
+	if len(store.storedMWD) != 0 {
+		t.Fatalf("StoreMWD called %d times, want 0 when MWD list is full", len(store.storedMWD))
+	}
+}
+
+func TestRSDS_StoresSMSMICorrelationID(t *testing.T) {
+	store := newS6cStore()
+	msisdn := "33612000011"
+	scAddr := "33600000011"
+	imsi := "001010000000020"
+	store.addSubscriber(&models.Subscriber{IMSI: imsi, MSISDN: ptr(msisdn)})
+
+	req := buildRDSMByMSISDN(t, msisdn, scAddr, mmeOutcomeAVP(SMDeliveryCauseAbsentUser))
+	req.InsertAVP(smsmiCorrelationIDAVP())
+
+	h := newTestHandlers(store)
+	_, err := h.RDSMR(nil, req)
+	if err != nil {
+		t.Fatalf("RDSMR returned error: %v", err)
+	}
+
+	if len(store.storedMWD) != 1 {
+		t.Fatalf("expected 1 StoreMWD call, got %d", len(store.storedMWD))
+	}
+	want := base64.StdEncoding.EncodeToString([]byte{
+		0x00, 0x00, 0x0c, 0xfd, 0x80, 0x00, 0x00, 0x14, 0x00, 0x00, 0x28, 0xaf,
+		'h', 's', 's', '1',
+	})
+	if store.storedMWD[0].smsmiCorrelationID == nil || *store.storedMWD[0].smsmiCorrelationID != want {
+		t.Fatalf("StoreMWD smsmi_correlation_id = %+v, want %q", store.storedMWD[0].smsmiCorrelationID, want)
+	}
+}
+
+func TestRSDS_LookupByUserIdentifierIMSI(t *testing.T) {
+	store := newS6cStore()
+	imsi := "001010000000021"
+	scAddr := "33600000012"
+	store.addSubscriber(&models.Subscriber{IMSI: imsi, MSISDN: ptr("33612000012")})
+
+	req := buildRDSMByMSISDN(t, "33699999999", scAddr, mmeOutcomeAVP(SMDeliveryCauseAbsentUser))
+	req.InsertAVP(buildUserIdentifierAVPForTest(imsi, nil))
+
+	h := newTestHandlers(store)
+	ans, err := h.RDSMR(nil, req)
+	if err != nil {
+		t.Fatalf("RDSMR returned error: %v", err)
+	}
+
+	requireResultCode(t, ans, 2001)
+	if len(store.storedMWD) != 1 || store.storedMWD[0].imsi != imsi {
+		t.Fatalf("storedMWD = %+v, want one record for imsi=%q", store.storedMWD, imsi)
+	}
+}
+
+func TestRSDS_LookupByUserIdentifierMSISDN(t *testing.T) {
+	store := newS6cStore()
+	imsi := "001010000000022"
+	msisdn := "33612000013"
+	scAddr := "33600000013"
+	store.addSubscriber(&models.Subscriber{IMSI: imsi, MSISDN: ptr(msisdn)})
+
+	req := buildRDSMByIMSI(t, "001010009999999", scAddr, mmeOutcomeAVP(SMDeliveryCauseAbsentUser))
+	req.InsertAVP(buildUserIdentifierAVPForTest("", &msisdn))
+
+	h := newTestHandlers(store)
+	ans, err := h.RDSMR(nil, req)
+	if err != nil {
+		t.Fatalf("RDSMR returned error: %v", err)
+	}
+
+	requireResultCode(t, ans, 2001)
+	if len(store.storedMWD) != 1 || store.storedMWD[0].imsi != imsi {
+		t.Fatalf("storedMWD = %+v, want one record for imsi=%q", store.storedMWD, imsi)
 	}
 }
 

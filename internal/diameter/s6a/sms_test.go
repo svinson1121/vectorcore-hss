@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"testing"
+	"time"
 
 	"github.com/fiorix/go-diameter/v4/diam"
 	"github.com/fiorix/go-diameter/v4/diam/avp"
 	"github.com/fiorix/go-diameter/v4/diam/datatype"
+	"github.com/fiorix/go-diameter/v4/diam/dict"
 	"go.uber.org/zap"
 
 	"github.com/svinson1121/vectorcore-hss/internal/config"
@@ -191,7 +193,7 @@ func (s *s6aTestStore) UpsertIMSIIMEIHistory(_ context.Context, _, _, _, _ strin
 	return nil
 }
 
-func (s *s6aTestStore) StoreMWD(_ context.Context, _, _, _, _ string, _ int, _ uint32) error {
+func (s *s6aTestStore) StoreMWD(_ context.Context, _ *models.MessageWaitingData) error {
 	return nil
 }
 
@@ -302,6 +304,30 @@ func requireULAFlags(t *testing.T, msg *diam.Message, want uint32) {
 	}
 }
 
+func buildNORForTest(t *testing.T, imsi string, alertReason int32) *diam.Message {
+	t.Helper()
+	req := diam.NewRequest(diam.Notify, AppIDS6a, nil)
+	req.NewAVP(avp.SessionID, avp.Mbit, 0, datatype.UTF8String("nor-session"))
+	req.NewAVP(avp.OriginHost, avp.Mbit, 0, datatype.DiameterIdentity("mme.test.net"))
+	req.NewAVP(avp.OriginRealm, avp.Mbit, 0, datatype.DiameterIdentity("test.net"))
+	req.NewAVP(avp.DestinationRealm, avp.Mbit, 0, datatype.DiameterIdentity("test.net"))
+	req.NewAVP(avp.UserName, avp.Mbit, 0, datatype.UTF8String(imsi))
+
+	alertDef, err := dict.Default.FindAVPWithVendor(AppIDS6a, "Alert-Reason", Vendor3GPP)
+	if err != nil {
+		t.Fatalf("find Alert-Reason AVP: %v", err)
+	}
+	req.NewAVP(alertDef.Code, avp.Mbit|avp.Vbit, Vendor3GPP, datatype.Enumerated(alertReason))
+	return req
+}
+
+func buildNORWithMaximumAvailabilityForTest(t *testing.T, imsi string, alertReason int32, maximumUEAvailabilityTime time.Time) *diam.Message {
+	t.Helper()
+	req := buildNORForTest(t, imsi, alertReason)
+	req.NewAVP(avpMaximumUEAvailabilityTime, avp.Vbit, Vendor3GPP, datatype.Time(maximumUEAvailabilityTime))
+	return req
+}
+
 func TestULR_SMSRegistrationAccepted(t *testing.T) {
 	store := &s6aTestStore{
 		sub: &models.Subscriber{
@@ -380,4 +406,125 @@ func TestULR_SMSRegistrationRejectedWithoutMMENumber(t *testing.T) {
 	}
 
 	requireULAFlags(t, ans, ULAFlagSeparationIndication)
+}
+
+func TestNOR_UEPresentTriggersSubscriberReadyCallback(t *testing.T) {
+	store := &s6aTestStore{}
+	h := newS6aTestHandlers(store)
+
+	type callback struct {
+		imsi                      string
+		trigger                   AlertTrigger
+		maximumUEAvailabilityTime *time.Time
+	}
+	gotCh := make(chan callback, 1)
+	h.WithOnSubscriberReady(func(imsi string, trigger AlertTrigger, maximumUEAvailabilityTime *time.Time) {
+		gotCh <- callback{imsi: imsi, trigger: trigger, maximumUEAvailabilityTime: maximumUEAvailabilityTime}
+	})
+
+	req := decodeMessageForTest(t, buildNORForTest(t, "001010000000010", AlertReasonUEPresent))
+	if _, err := h.NOR(nil, req); err != nil {
+		t.Fatalf("NOR returned error: %v", err)
+	}
+
+	var got callback
+	select {
+	case got = <-gotCh:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for subscriber-ready callback")
+	}
+	if got.imsi != "001010000000010" {
+		t.Fatalf("callback IMSI = %q, want %q", got.imsi, "001010000000010")
+	}
+	if got.trigger != AlertTriggerUserAvailable {
+		t.Fatalf("callback trigger = %q, want %q", got.trigger, AlertTriggerUserAvailable)
+	}
+}
+
+func TestNOR_UEMemoryAvailableTriggersSubscriberReadyCallback(t *testing.T) {
+	store := &s6aTestStore{}
+	h := newS6aTestHandlers(store)
+
+	type callback struct {
+		imsi                      string
+		trigger                   AlertTrigger
+		maximumUEAvailabilityTime *time.Time
+	}
+	gotCh := make(chan callback, 1)
+	h.WithOnSubscriberReady(func(imsi string, trigger AlertTrigger, maximumUEAvailabilityTime *time.Time) {
+		gotCh <- callback{imsi: imsi, trigger: trigger, maximumUEAvailabilityTime: maximumUEAvailabilityTime}
+	})
+
+	req := decodeMessageForTest(t, buildNORForTest(t, "001010000000011", AlertReasonUEMemoryAvailable))
+	if _, err := h.NOR(nil, req); err != nil {
+		t.Fatalf("NOR returned error: %v", err)
+	}
+
+	var got callback
+	select {
+	case got = <-gotCh:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for subscriber-ready callback")
+	}
+	if got.imsi != "001010000000011" {
+		t.Fatalf("callback IMSI = %q, want %q", got.imsi, "001010000000011")
+	}
+	if got.trigger != AlertTriggerMemoryAvailable {
+		t.Fatalf("callback trigger = %q, want %q", got.trigger, AlertTriggerMemoryAvailable)
+	}
+}
+
+func TestNOR_PassesMaximumUEAvailabilityTimeToCallback(t *testing.T) {
+	store := &s6aTestStore{}
+	h := newS6aTestHandlers(store)
+
+	type callback struct {
+		imsi                      string
+		trigger                   AlertTrigger
+		maximumUEAvailabilityTime *time.Time
+	}
+	gotCh := make(chan callback, 1)
+	h.WithOnSubscriberReady(func(imsi string, trigger AlertTrigger, maximumUEAvailabilityTime *time.Time) {
+		gotCh <- callback{imsi: imsi, trigger: trigger, maximumUEAvailabilityTime: maximumUEAvailabilityTime}
+	})
+
+	maxAvail := time.Unix(1735689600, 0).UTC()
+	req := decodeMessageForTest(t, buildNORWithMaximumAvailabilityForTest(t, "001010000000013", AlertReasonUEMemoryAvailable, maxAvail))
+	if _, err := h.NOR(nil, req); err != nil {
+		t.Fatalf("NOR returned error: %v", err)
+	}
+
+	var got callback
+	select {
+	case got = <-gotCh:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for subscriber-ready callback")
+	}
+	if got.maximumUEAvailabilityTime == nil {
+		t.Fatal("callback maximumUEAvailabilityTime = nil, want value")
+	}
+	if !got.maximumUEAvailabilityTime.UTC().Equal(maxAvail) {
+		t.Fatalf("callback maximumUEAvailabilityTime = %s, want %s", got.maximumUEAvailabilityTime.UTC(), maxAvail)
+	}
+}
+
+func TestNOR_UnknownAlertReasonDoesNotTriggerCallback(t *testing.T) {
+	store := &s6aTestStore{}
+	h := newS6aTestHandlers(store)
+
+	triggered := make(chan struct{}, 1)
+	h.WithOnSubscriberReady(func(string, AlertTrigger, *time.Time) {
+		triggered <- struct{}{}
+	})
+
+	req := decodeMessageForTest(t, buildNORForTest(t, "001010000000012", 99))
+	if _, err := h.NOR(nil, req); err != nil {
+		t.Fatalf("NOR returned error: %v", err)
+	}
+
+	select {
+	case <-triggered:
+		t.Fatal("unexpected subscriber-ready callback for unknown Alert-Reason")
+	default:
+	}
 }
