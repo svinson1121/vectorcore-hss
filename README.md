@@ -1,6 +1,6 @@
 # VectorCore HSS
 
-A high-performance Home Subscriber Server (HSS),PCRF,EIR,HLR,UDM,UDR and PCF  for 3GPP 2/3G  LTE/4G 5GC and IMS
+A high-performance Home Subscriber Server (HSS), PCRF, HLR, UDM, UDR, and PCF for 3GPP 2G/3G, LTE/4G, 5GC, and IMS
 networks, written in Go.
 
 ---
@@ -10,7 +10,7 @@ networks, written in Go.
 - **Multi-interface Diameter server** - S6a, S6c, S13, Cx, Sh, Gx, Rx, SWx, SLh, Zh on a single TCP/SCTP listener
 - **GSUP/HLR** - Osmocom IPA+GSUP server (port 4222) for OsmoMSC/OsmoSGSN; handles SendAuthInfo, UpdateLocation, PurgeMS; generates 2G triplets and 3G quintuplets for CSFB voice and SGs SMS
 - **SMS routing (S6c)** - Send-Routing-Info-for-SM (SRI-SM) resolves MSISDN to serving MME for MT SMS delivery via SGd/T4; Report-SM-Delivery-Status (RSDS) stores Message Waiting Data on delivery failure; Alert-Service-Centre (ALSC) is HSS-initiated and fires automatically when the subscriber re-attaches; SMS-in-MME registration state (MME-Number-for-MT-SMS, MME-Registered-for-SMS) tracked per subscriber via ULR
-- **5GC UDM, UDR, and PCF**  N13,N10,N8,N15,N7 and SCP Proxy support
+- **5GC UDM, UDR, and PCF** - N13, N10, N8, N15, N7, N36, and SCP proxy support over a shared SBI listener
 - **Milenage authentication** - EUTRAN vector generation (AIR), EAP-AKA vector generation (SWx MAR), GBA vector generation (Zh MAR); custom c/r constant profiles per-AUC
 - **Atomic SQN management** - SELECT FOR UPDATE prevents SQN races during concurrent AIR from multiple MMEs
 - **In-memory read cache** - 60-second TTL cache on AUC and Subscriber hot paths
@@ -150,14 +150,14 @@ attaches via a visited PLMN the HSS evaluates the following rules in order:
 1. **Home network** - always allowed (visited PLMN matches home MCC/MNC).
 2. **Subscriber roaming switch** - if `roaming_enabled = false` on the subscriber record the attach is rejected with ROAMING_NOT_ALLOWED.
 3. **Network rule** - the visited MCC/MNC is looked up in `roaming_rules`. If a matching rule exists its `allow` flag is applied.
-4. **Undefined networks** - if no rule matches, the `hss.allow_undefined_networks` config flag controls whether the attach is permitted (default: true).
+4. **Undefined networks** - if no rule matches, the `roaming.allow_undefined_networks` config flag controls whether the attach is permitted (default: true).
 
 Networks and their rules are managed via the OAM REST API (`/roaming_network`, `/roaming_rule`).
 
 Config flag:
 
 ```yaml
-hss:
+roaming:
   allow_undefined_networks: true   # allow roaming on networks with no explicit rule
 ```
 
@@ -289,20 +289,29 @@ gsup:
   sbi:
     bind_address: "::"
     bind_port: 7777
+    # Optional TLS for HTTPS + HTTP/2.
+    # tls_cert_file: /etc/hss/tls/5gc.crt
+    # tls_key_file:  /etc/hss/tls/5gc.key
     oauth2_enabled: false
     oauth2_bypass: true
     client:
       mode: direct
-      scp_address: ""
+      scp_address: ""   # used when mode: scp
+      # Fixed delay between NRF registration retry attempts.
+      reconnect_holdoff_time: 2s
 
   udm:
     enabled: false
+    mcc: "001"
+    mnc: "01"
     nrf_address: ""
     nf_instance_id: ""
     suci_decryption_keys: []
 
   pcf:
     enabled: false
+    mcc: "001"
+    mnc: "01"
     nrf_address: ""
     nf_instance_id: ""
 
@@ -321,7 +330,7 @@ api:
 ### Run
 
 ```bash
-./bin/hss -config config.yaml
+./bin/hss -c  config.yaml
 ```
 
 On startup the server will:
@@ -330,7 +339,7 @@ On startup the server will:
 2. Load the GSMA TAC database into memory (if tac_db_enabled)
 3. Start the Diameter listener on TCP port 3868 (and SCTP if enabled)
 4. Start the GSUP/HLR listener on TCP port 4222 (if enabled)
-5. Start the 5G UDM/UDR SBI listener on port 7777 (if enabled)
+5. Start the shared 5GC SBI listener on port 7777 for UDM/UDR/PCF (if enabled)
 6. Start the OAM REST API on port 8080 (if enabled)
 7. Start the GeoRed replication listener on port 9869 (if enabled)
 

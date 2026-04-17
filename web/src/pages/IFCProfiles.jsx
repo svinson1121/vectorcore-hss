@@ -26,14 +26,12 @@ const DEFAULT_IFC_TEMPLATE = `<!--VectorCore iFC Template. Variables: {imsi} {ms
         </Extension>
     </Extension>
 </PublicIdentity>
-<!--
 <PublicIdentity> 
      <Identity>sip:{imsi}@ims.mnc{mnc}.mcc{mcc}.3gppnetwork.org</Identity> 
      <Extension>
           <IdentityType>0</IdentityType> 
      </Extension>
  </PublicIdentity>
--->
 
 <!-- Copy SIP REGISTER towards Application Server -->
 <!--
