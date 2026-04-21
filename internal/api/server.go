@@ -27,6 +27,11 @@ type CLRSender interface {
 	SendCLRByIMSI(ctx context.Context, imsi string) error
 }
 
+// IDRSender allows the API to push updated subscriber data to the serving MME.
+type IDRSender interface {
+	SendIDRByIMSI(ctx context.Context, imsi string) error
+}
+
 // CacheInvalidator allows the API to evict subscriber cache entries when a
 // subscriber record is modified, ensuring Diameter handlers see fresh data.
 type CacheInvalidator interface {
@@ -80,6 +85,7 @@ type Server struct {
 	log          *zap.Logger
 	cfg          config.APIConfig
 	clr          CLRSender         // nil when CLR is not wired (e.g. Diameter disabled)
+	idr          IDRSender         // nil when S6a subscriber-data push is not wired
 	cache        CacheInvalidator  // nil when Diameter store is not wired
 	tac          *taccache.Cache   // nil when TAC DB is disabled in config
 	geored       GeoredManager     // nil when GeoRed is disabled
@@ -127,6 +133,12 @@ func (s *Server) WithAuthFailures(a AuthFailureLister) *Server {
 // WithCLR attaches a CLR dispatcher to the API server.
 func (s *Server) WithCLR(c CLRSender) *Server {
 	s.clr = c
+	return s
+}
+
+// WithIDR attaches an IDR dispatcher to the API server.
+func (s *Server) WithIDR(i IDRSender) *Server {
+	s.idr = i
 	return s
 }
 

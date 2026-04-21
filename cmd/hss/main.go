@@ -292,7 +292,7 @@ func main() {
 	}
 
 	if cfg.API.Enabled {
-		apiSrv := api.New(db, cfg.API, log).WithCLR(srv).WithCache(store).WithPeers(&peerListAdapter{srv.Peers()}).WithAuthFailures(&authFailureAdapter{srv})
+		apiSrv := api.New(db, cfg.API, log).WithCLR(srv).WithIDR(srv).WithCache(store).WithPeers(&peerListAdapter{srv.Peers()}).WithAuthFailures(&authFailureAdapter{srv})
 		if gsupSrv != nil {
 			apiSrv.WithGSUPPeers(&servicePeerListAdapter{gsupSrv.Peers()})
 		}

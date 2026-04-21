@@ -129,6 +129,7 @@ func (s *Server) updateSubscriber(ctx context.Context, input *SubscriberUpdateIn
 	input.Body.ServingVLRTimestamp = old.ServingVLRTimestamp
 	input.Body.ServingSGSN = old.ServingSGSN
 	input.Body.ServingSGSNTimestamp = old.ServingSGSNTimestamp
+	ardChanged := !equalUint32Ptr(old.AccessRestrictionData, input.Body.AccessRestrictionData)
 	if err := s.db.WithContext(ctx).Save(input.Body).Error; err != nil {
 		return nil, huma.Error500InternalServerError("db error", err)
 	}
@@ -148,10 +149,30 @@ func (s *Server) updateSubscriber(ctx context.Context, input *SubscriberUpdateIn
 			}
 		}()
 	}
+	if ardChanged && s.idr != nil && input.Body.IMSI != "" && !nowDisabled {
+		imsi := input.Body.IMSI
+		go func() {
+			if err := s.idr.SendIDRByIMSI(context.Background(), imsi); err != nil {
+				s.log.Warn("api: IDR on Access-Restriction-Data change failed",
+					zap.String("imsi", imsi), zap.Error(err))
+			}
+		}()
+	}
 	if s.geored != nil {
 		s.geored.PublishOAMPut(geored.EventSubscriberPut, input.Body)
 	}
 	return s.getSubscriber(ctx, &SubscriberIDInput{ID: input.ID})
+}
+
+func equalUint32Ptr(a, b *uint32) bool {
+	switch {
+	case a == nil && b == nil:
+		return true
+	case a == nil || b == nil:
+		return false
+	default:
+		return *a == *b
+	}
 }
 
 func (s *Server) deleteSubscriber(ctx context.Context, input *SubscriberIDInput) (*struct{}, error) {

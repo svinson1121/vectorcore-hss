@@ -349,6 +349,12 @@ func (s *Server) SendCLRByIMSI(ctx context.Context, imsi string) error {
 	return s.s6a.SendCLRByIMSI(ctx, imsi, s6a.CancellationTypeSubscriptionWithdrawal)
 }
 
+// SendIDRByIMSI pushes updated subscriber data to the serving MME.
+func (s *Server) SendIDRByIMSI(_ context.Context, imsi string) error {
+	s.s6a.SendIDR(imsi)
+	return nil
+}
+
 // Start launches the Diameter listeners. TCP is always started; SCTP is
 // started alongside it when hss.EnableSCTP is true in config.
 // Both listeners share the same StateMachine (handler set).

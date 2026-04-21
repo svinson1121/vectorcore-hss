@@ -42,10 +42,10 @@ const RAT_BITS = [
   { value: 8,   label: 'I-HSPA-Evo' },
   { value: 16,  label: 'E-UTRAN (4G)' },
   { value: 32,  label: 'HO Non-3GPP' },
-  { value: 64,  label: 'NB-IoT' },
-  { value: 256, label: 'NR as Secondary RAT (NSA)' },
-  { value: 512, label: 'NR in Unlicensed Spectrum' },
-  { value: 1024, label: 'NR in Licensed Spectrum (SA)' },
+  { value: 64,  label: 'NR as Secondary RAT (NSA)' },
+  { value: 128, label: 'NR in Unlicensed Spectrum' },
+  { value: 256, label: 'NR in 5GS (SA)' },
+  { value: 512, label: 'Non-3GPP 5GS' },
 ]
 
 const CHIP_STYLE = {
