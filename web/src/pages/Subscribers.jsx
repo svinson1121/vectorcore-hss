@@ -505,13 +505,24 @@ export default function Subscribers() {
 
   const { sorted: sortedSubs, sortKey, sortDir, handleSort } = useSort(items, 'imsi')
 
+  const latestEIRHistoryByIMSI = {}
+  for (const row of eirHistory) {
+    if (!row?.imsi) continue
+    const prev = latestEIRHistoryByIMSI[row.imsi]
+    const rowTS = Date.parse(row.imsi_imei_timestamp || row.last_modified || '') || 0
+    const prevTS = prev ? (Date.parse(prev.imsi_imei_timestamp || prev.last_modified || '') || 0) : 0
+    if (!prev || rowTS >= prevTS) {
+      latestEIRHistoryByIMSI[row.imsi] = row
+    }
+  }
+
   function SortIcon({ col }) {
     if (sortKey !== col) return <span className="sort-icon"><ChevronsUpDown size={11} /></span>
     return <span className="sort-icon">{sortDir === 'asc' ? <ChevronUp size={11} /> : <ChevronDown size={11} />}</span>
   }
 
   function getDeviceInfo(imsi) {
-    const h = eirHistory.find(e => e.imsi === imsi)
+    const h = latestEIRHistoryByIMSI[imsi]
     if (!h) return 'Unknown'
     const parts = [h.imei, [h.make, h.model].filter(Boolean).join(' ')].filter(Boolean)
     return parts.join(' ')

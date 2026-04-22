@@ -103,7 +103,10 @@ func registerEIRHistoryRoutes(s *Server, api huma.API) {
 
 func (s *Server) listEIRHistory(ctx context.Context, _ *struct{}) (*EIRHistoryListOutput, error) {
 	var items []models.IMSIIMEIHistory
-	if err := s.db.WithContext(ctx).Find(&items).Error; err != nil {
+	if err := s.db.WithContext(ctx).
+		Order("imsi_imei_timestamp DESC NULLS LAST").
+		Order("last_modified DESC").
+		Find(&items).Error; err != nil {
 		return nil, huma.Error500InternalServerError("db error", err)
 	}
 	return &EIRHistoryListOutput{Body: items}, nil

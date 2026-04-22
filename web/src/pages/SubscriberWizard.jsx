@@ -54,7 +54,7 @@ export default function SubscriberWizard({ onClose }) {
   const [sub, setSub] = useState({
     msisdn: '', enabled: true, roaming_enabled: true,
     ue_ambr_dl: 0, ue_ambr_ul: 0, nam: 0,
-    subscribed_rau_tau_timer: 300,
+    subscribed_rau_tau_timer: 600,
   })
   const [selectedApnIds, setSelectedApnIds] = useState([])
   const [apnPickerValue, setApnPickerValue] = useState('')

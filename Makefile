@@ -1,6 +1,10 @@
 .PHONY: build clean deps install uninstall ui dev-ui
 
 BINARY=hss
+APP_VERSION=0.4.0B
+API_VERSION=1.4.0
+VERSION_PKG=github.com/svinson1121/vectorcore-hss/internal/version
+GO_LDFLAGS=-X $(VERSION_PKG).AppVersion=$(APP_VERSION) -X $(VERSION_PKG).APIVersion=$(API_VERSION)
 PREFIX=/opt/vectorcore
 BINDIR=$(PREFIX)/bin
 ETCDIR=$(PREFIX)/etc
@@ -9,7 +13,7 @@ SYSTEMD=/lib/systemd/system/
 
 build: ui deps
 	mkdir -p bin
-	go build -o bin/$(BINARY) ./cmd/hss
+	go build -ldflags "$(GO_LDFLAGS)" -o bin/$(BINARY) ./cmd/hss
 
 ui: ## Build the React UI (requires Node.js / npm)
 	cd web && npm install && npm run build
