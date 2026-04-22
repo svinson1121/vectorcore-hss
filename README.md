@@ -1,6 +1,6 @@
 # VectorCore HSS
 
-A high-performance Home Subscriber Server (HSS), PCRF, HLR, UDM, UDR, and PCF for 3GPP 2G/3G, LTE/4G, 5GC, and IMS
+A high-performance Home Subscriber Server (HSS), PCRF,EIR, HLR, UDM, UDR, and PCF for 3GPP 2G/3G, LTE/4G, 5GC, and IMS
 networks, written in Go.
 
 ---
@@ -197,7 +197,7 @@ See [docs/api.md](docs/api.md) for the full reference.
 
 ### Prerequisites
 
-- Go 1.25+
+- Go 1.26.2+
 - PostgreSQL 14+ (or SQLite for testing)
 
 ### Build
