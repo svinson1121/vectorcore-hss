@@ -1,6 +1,6 @@
 # VectorCore HSS
 
-A high-performance Home Subscriber Server (HSS), PCRF, EIR, HLR, UDM, UDR, and PCF for 3GPP 2G/3G, LTE/4G, 5GC, and IMS
+A high-performance Home Subscriber Server (HSS), PCRF, HLR, UDM, UDR, and PCF for 3GPP 2G/3G, LTE/4G, 5GC, and IMS
 networks, written in Go.
 
 ---
@@ -10,14 +10,14 @@ networks, written in Go.
 - **Multi-interface Diameter server** - S6a, S6c, S13, Cx, Sh, Gx, Rx, SWx, SLh, Zh on a single TCP/SCTP listener
 - **GSUP/HLR** - Osmocom IPA+GSUP server (port 4222) for OsmoMSC/OsmoSGSN; handles SendAuthInfo, UpdateLocation, PurgeMS; generates 2G triplets and 3G quintuplets for CSFB voice and SGs SMS
 - **SMS routing (S6c)** - Send-Routing-Info-for-SM (SRI-SM) resolves MSISDN to serving MME for MT SMS delivery via SGd/T4; Report-SM-Delivery-Status (RSDS) stores Message Waiting Data on delivery failure; Alert-Service-Centre (ALSC) is HSS-initiated and fires automatically when the subscriber re-attaches; SMS-in-MME registration state (MME-Number-for-MT-SMS, MME-Registered-for-SMS) tracked per subscriber via ULR
-- **5GC UDM, UDR, and PCF** - N13, N10, N8, N15, N7, N36, and SCP proxy support over a shared SBI listener
+- **5GC UDM, UDR, and PCF** - N13, N10, N8, N15, and N7 support over a shared SBI listener; UDM, UDR, and PCF are co-located in one process with in-process data sharing; `nudr-dr` / N36 endpoints are exposed for internal service-to-service use
 - **Milenage authentication** - EUTRAN vector generation (AIR), EAP-AKA vector generation (SWx MAR), GBA vector generation (Zh MAR); custom c/r constant profiles per-AUC
 - **Atomic SQN management** - SELECT FOR UPDATE prevents SQN races during concurrent AIR from multiple MMEs
 - **In-memory read cache** - 60-second TTL cache on AUC and Subscriber hot paths
 - **5G NSA support** - Access-Restriction-Data bitmask per subscriber controls NR secondary RAT access
 - **GeoRed** - Active-active N-node geographic redundancy over HTTP/2 with batched event replication; replicates OAM changes and dynamic state (SQN, serving MME/SGSN, Gx sessions) across nodes
 - **TAC database** - GSMA IMEI Type Allocation Code database loaded into memory at startup; enriches EIR history with device make and model
-- **OAM REST API** - Full CRUD over all subscriber data; OpenAPI 3.1 spec with Swagger UI at /api/v1/docs
+- **OAM REST API** - Full CRUD over all subscriber data; OpenAPI 3.1 spec with interactive docs at /api/v1/docs
 - **Prometheus metrics** - Diameter request counters and latency histograms at GET /metrics
 - **Dual transport** - TCP always on; SCTP optional (requires kernel SCTP module)
 - **PostgreSQL + SQLite** - Production on PostgreSQL; SQLite for testing
@@ -152,7 +152,7 @@ attaches via a visited PLMN the HSS evaluates the following rules in order:
 3. **Network rule** - the visited MCC/MNC is looked up in `roaming_rules`. If a matching rule exists its `allow` flag is applied.
 4. **Undefined networks** - if no rule matches, the `roaming.allow_undefined_networks` config flag controls whether the attach is permitted (default: true).
 
-Networks and their rules are managed via the OAM REST API (`/roaming_network`, `/roaming_rule`).
+Roaming rules are managed via the OAM REST API (`/api/v1/roaming_rules`).
 
 Config flag:
 
@@ -171,25 +171,24 @@ See [docs/api.md](docs/api.md) for the full reference.
 
 | Resource | Path | Description |
 |----------|------|-------------|
-| APN | `/apn` | Access Point Name profiles |
-| AUC | `/auc` | Authentication Center (Ki, OPc, AMF, SQN) |
-| Algorithm Profile | `/auc/profile` | Custom Milenage c/r constant sets |
-| Subscriber | `/subscriber` | EPC subscriber profiles |
-| IMS Subscriber | `/ims_subscriber` | IMS subscriber profiles |
-| IFC Profile | `/ifc_profile` | Initial Filter Criteria XML blobs |
-| EIR | `/eir` | Equipment Identity Register entries |
-| EIR History | `/eir_history` | IMSI/IMEI audit log (read-only) |
-| Roaming Network | `/roaming_network` | Roaming partner networks (identified by MCC/MNC) |
-| Roaming Rule | `/roaming_rule` | Per-network allow/deny rules enforced on AIR and ULR |
-| Charging Rule | `/charging_rule` | Gx charging rules |
-| TFT | `/tft` | Traffic Flow Templates |
-| Subscriber Routing | `/subscriber_routing` | Static IP assignments per subscriber+APN |
-| Serving APN | `/serving_apn` | Active PGW sessions |
-| Subscriber Attributes | `/subscriber_attributes` | Key-value store per subscriber |
-| Emergency Subscriber | `/emergency_subscriber` | Emergency session tracking |
-| Operation Log | `/operation_log` | Audit trail (read-only) |
-| GeoRed Peers | `/geored/peers` | Active replication peer status |
-| GeoRed Sync | `/geored/sync` | Trigger a full resync to all peers |
+| APN | `/api/v1/apn` | Access Point Name profiles |
+| AUC | `/api/v1/subscriber/auc` | Authentication Center (Ki, OPc, AMF, SQN) |
+| Algorithm Profile | `/api/v1/subscriber/auc/profile` | Custom Milenage c/r constant sets |
+| Subscriber | `/api/v1/subscriber` | EPC subscriber profiles |
+| IMS Subscriber | `/api/v1/ims_subscriber` | IMS subscriber profiles |
+| IFC Profile | `/api/v1/ims_subscriber/ifc_profile` | Initial Filter Criteria XML blobs |
+| EIR | `/api/v1/eir` | Equipment Identity Register entries |
+| EIR History | `/api/v1/eir/history` | IMSI/IMEI audit log (read-only) |
+| Roaming Rules | `/api/v1/roaming_rules` | Per-network allow/deny rules enforced on AIR and ULR |
+| Charging Rule | `/api/v1/apn/charging_rule` | Gx charging rules |
+| TFT | `/api/v1/apn/charging_rule/tft` | Traffic Flow Templates |
+| Subscriber Routing | `/api/v1/subscriber/routing` | Static IP assignments per subscriber+APN |
+| Serving APN | `/api/v1/oam/serving_apn` | Active PGW sessions |
+| Subscriber Attributes | `/api/v1/subscriber/attributes` | Key-value store per subscriber |
+| Emergency Subscriber | `/api/v1/oam/emergency_subscriber` | Emergency session tracking |
+| Operation Log | `/api/v1/oam/operation_log` | Audit trail (read-only) |
+| GeoRed Status | `/api/v1/geored/status` | Active replication peer status |
+| GeoRed Sync | `/api/v1/geored/sync` | Trigger a full resync to all peers |
 
 ---
 
@@ -197,7 +196,7 @@ See [docs/api.md](docs/api.md) for the full reference.
 
 ### Prerequisites
 
-- Go 1.26.2+
+- Go 1.25+
 - PostgreSQL 14+ (or SQLite for testing)
 
 ### Build

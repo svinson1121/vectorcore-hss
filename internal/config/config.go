@@ -144,7 +144,8 @@ type HSSConfig struct {
 	OriginRealm                  string   `yaml:"OriginRealm"`
 	BindAddress                  string   `yaml:"BindAddress"`
 	BindPort                     int      `yaml:"BindPort"`
-	EnableSCTP                   bool     `yaml:"EnableSCTP"` // listen on SCTP in addition to TCP
+	EnableSCTP                   bool     `yaml:"EnableSCTP"`   // listen on SCTP in addition to TCP
+	DiameterDSCP                 int      `yaml:"DiameterDSCP"` // DSCP value for Diameter sockets, 0-63; 0 leaves best-effort/default marking
 	DWRInterval                  int      `yaml:"DWRInterval"`
 	CancelLocationRequestEnabled bool     `yaml:"CancelLocationRequest_Enabled"`
 	AllowedPeers                 []string `yaml:"AllowedPeers"`
@@ -257,6 +258,9 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.HSS.OriginRealm == "" {
 		return nil, fmt.Errorf("config: hss.OriginRealm is required")
+	}
+	if cfg.HSS.DiameterDSCP < 0 || cfg.HSS.DiameterDSCP > 63 {
+		return nil, fmt.Errorf("config: hss.DiameterDSCP must be between 0 and 63")
 	}
 	if cfg.Database.Type == "" {
 		return nil, fmt.Errorf("config: database.db_type is required")

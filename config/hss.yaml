@@ -4,6 +4,7 @@ hss:
   BindAddress: "::"
   BindPort: 3868
   EnableSCTP: yes        # set true to also listen on SCTP (requires kernel sctp module)
+  DiameterDSCP: 46        # Diameter DSCP marking, 0-63; 0 leaves packets best-effort/default
   DWRInterval: 30
   CancelLocationRequest_Enabled: true
   MCC: "311"

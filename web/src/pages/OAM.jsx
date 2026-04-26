@@ -241,6 +241,8 @@ export default function OAM() {
   const [peers, setPeers] = useState([])
   const [gsupPeers, setGSUPPeers] = useState([])
   const [sbiPeers, setSBIPeers] = useState([])
+  const [gsupPeersAvailable, setGSUPPeersAvailable] = useState(true)
+  const [sbiPeersAvailable, setSBIPeersAvailable] = useState(true)
   const [subscribers, setSubscribers] = useState([])
   const [emergencySessions, setEmergencySessions] = useState([])
   const [operationLogs, setOperationLogs] = useState([])
@@ -285,15 +287,31 @@ export default function OAM() {
   const fetchGSUPPeers = useCallback(async () => {
     try {
       const p = await getGSUPPeers()
-      if (mountedRef.current) setGSUPPeers(Array.isArray(p) ? p : [])
-    } catch {}
+      if (mountedRef.current) {
+        setGSUPPeersAvailable(true)
+        setGSUPPeers(Array.isArray(p) ? p : [])
+      }
+    } catch (err) {
+      if (mountedRef.current && String(err.message || '').includes('HTTP 404')) {
+        setGSUPPeersAvailable(false)
+        setGSUPPeers([])
+      }
+    }
   }, [])
 
   const fetchSBIPeers = useCallback(async () => {
     try {
       const p = await getSBIPeers()
-      if (mountedRef.current) setSBIPeers(Array.isArray(p) ? p : [])
-    } catch {}
+      if (mountedRef.current) {
+        setSBIPeersAvailable(true)
+        setSBIPeers(Array.isArray(p) ? p : [])
+      }
+    } catch (err) {
+      if (mountedRef.current && String(err.message || '').includes('HTTP 404')) {
+        setSBIPeersAvailable(false)
+        setSBIPeers([])
+      }
+    }
   }, [])
 
   const fetchEmergency = useCallback(async () => {
@@ -459,29 +477,33 @@ export default function OAM() {
         ]}
       />
 
-      <PeerSection
-        title="Connected GSUP Peers"
-        peers={gsupPeers}
-        onRefresh={fetchGSUPPeers}
-        emptyText="No GSUP peers currently connected."
-        columns={[
-          { key: 'name', label: 'Peer Name' },
-          { key: 'remote_addr', label: 'Remote Address' },
-          { key: 'transport', label: 'Transport', accent: true },
-        ]}
-      />
+      {gsupPeersAvailable && (
+        <PeerSection
+          title="Connected GSUP Peers"
+          peers={gsupPeers}
+          onRefresh={fetchGSUPPeers}
+          emptyText="No GSUP peers currently connected."
+          columns={[
+            { key: 'name', label: 'Peer Name' },
+            { key: 'remote_addr', label: 'Remote Address' },
+            { key: 'transport', label: 'Transport', accent: true },
+          ]}
+        />
+      )}
 
-      <PeerSection
-        title="Connected SBI Peers"
-        peers={sbiPeers}
-        onRefresh={fetchSBIPeers}
-        emptyText="No SBI peers currently connected."
-        columns={[
-          { key: 'name', label: 'Peer Address' },
-          { key: 'remote_addr', label: 'Remote Address' },
-          { key: 'transport', label: 'Transport', accent: true },
-        ]}
-      />
+      {sbiPeersAvailable && (
+        <PeerSection
+          title="Connected SBI Peers"
+          peers={sbiPeers}
+          onRefresh={fetchSBIPeers}
+          emptyText="No SBI peers currently connected."
+          columns={[
+            { key: 'name', label: 'Peer Address' },
+            { key: 'remote_addr', label: 'Remote Address' },
+            { key: 'transport', label: 'Transport', accent: true },
+          ]}
+        />
+      )}
 
       {/* Send Cancel Location Request */}
       <div className="oam-section">

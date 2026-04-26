@@ -1,6 +1,6 @@
 # VectorCore HSS  -- OAM REST API Reference
 
-The OAM (Operations, Administration, and Maintenance) API provides full CRUD management of all HSS subscriber data. It is a JSON REST API built on **Huma v2** (OpenAPI 3.1) with a Swagger UI available at `/api/v1/docs`.
+The OAM (Operations, Administration, and Maintenance) API provides full CRUD management of all HSS subscriber data. It is a JSON REST API built on **Huma v2** (OpenAPI 3.1) with interactive docs available at `/api/v1/docs`.
 
 ---
 
@@ -61,8 +61,9 @@ api:
 **Base URL (plain HTTP):** `http://<host>:8080`
 **Base URL (HTTPS):** `https://<host>:8080`  -- enabled automatically when `tls_cert_file` and `tls_key_file` are set.
 
-**Interactive API docs (Swagger UI):** `http://<host>:8080/api/v1/docs`
-**OpenAPI 3.1 spec:** `http://<host>:8080/api/v1/openapi.json`
+**Interactive API docs:** `http://<host>:8080/api/v1/docs`
+**OpenAPI 3.1 spec (used by the docs page):** `http://<host>:8080/api/v1/openapi.yaml`
+**OpenAPI 3.1 spec (JSON form):** `http://<host>:8080/api/v1/openapi.json`
 
 Authentication is optional and disabled by default  -- restrict access at the network/firewall level when not using API keys.
 
@@ -356,7 +357,7 @@ If authentication is enabled and no valid key is provided, the API returns HTTP 
 | Encoding | UTF-8 |
 | `last_modified` | Set automatically on create/update (RFC 3339 UTC). Do not send in request body. |
 | `{id}` | Integer primary key in the path |
-| List responses | Always a JSON array, never paginated |
+| List responses | Resource-specific. Most list endpoints return JSON arrays; some, such as `/api/v1/subscriber`, return an object with metadata like `total` and `items`. |
 | Optional fields | Fields with server defaults (primary keys, `last_modified`, bool/int fields with GORM defaults) may be omitted from create/update request bodies. The server applies the DB default. |
 
 ### HTTP Status Codes
@@ -374,13 +375,21 @@ If authentication is enabled and no valid key is provided, the API returns HTTP 
 
 ### Error Response Body
 
-Errors follow the RFC 7807 Problem Details format (Huma standard):
+Most Huma-managed API errors follow the RFC 7807 Problem Details format:
 
 ```json
 {
   "title": "Not Found",
   "status": 404,
   "detail": "not found"
+}
+```
+
+API-key authentication failures currently return a simpler body:
+
+```json
+{
+  "error": "unauthorized"
 }
 ```
 
@@ -435,12 +444,15 @@ Returns a structured JSON snapshot of all HSS metrics. Designed for web dashboar
 |--------|------|--------|-------------|
 | `hss_diameter_requests_total` | Counter | `command`, `result` | Diameter requests by command and result |
 | `hss_diameter_request_duration_seconds` | Histogram | `command` | Handler latency per command |
+| `hss_db_query_duration_seconds` | Histogram | `operation`, `table` | Database query latency |
 | `hss_api_requests_total` | Counter | `method`, `path`, `status` | OAM API request counts |
+| `hss_api_request_duration_seconds` | Histogram | `method`, `path` | OAM API request latency |
 | `hss_cache_hits_total` | Counter | `entity`, `result` | In-memory cache hit/miss by entity type |
 | `hss_crypto_vector_generation_seconds` | Histogram | `type` | Milenage vector generation time (`eutran`, `eap_aka`) |
 | `hss_tac_lookups_total` | Counter | `result` | TAC (IMEI device) cache lookups  -- `hit` or `miss` |
 | `hss_tac_cache_size` | Gauge |  -- | Number of TAC entries currently loaded in memory |
 | `hss_tac_imported_total` | Counter |  -- | Cumulative TAC records written via CSV import |
+| `hss_db_pool_*` | Gauge/Counter |  -- | DB pool state and wait metrics |
 
 **Response:**
 
@@ -448,32 +460,38 @@ Returns a structured JSON snapshot of all HSS metrics. Designed for web dashboar
 {
   "timestamp": "2026-03-16T05:14:30Z",
   "diameter": {
-    "requests_total": [
-      { "command": "AIR", "result": "success", "value": 120 },
-      { "command": "ULR", "result": "success", "value": 118 },
-      { "command": "CCR", "result": "success", "value": 45 }
+    "commands": [
+      { "command": "AIR", "total": 120, "errors": 2, "error_rate_pct": 1.67, "mean_ms": 1.5 },
+      { "command": "ULR", "total": 118, "errors": 0, "error_rate_pct": 0, "mean_ms": 1.2 }
+    ]
+  },
+  "database": {
+    "queries": [
+      { "operation": "query", "table": "subscriber", "count": 220, "mean_ms": 0.42, "sum_ms": 92.4 }
     ],
-    "latency": [
-      { "command": "AIR", "p50_ms": 1.2, "p95_ms": 4.5, "p99_ms": 8.1, "count": 120, "sum_ms": 180.5 }
+    "pool": {
+      "open_connections": 4,
+      "in_use": 1,
+      "idle": 3,
+      "wait_count": 0,
+      "wait_duration_ms": 0
+    }
+  },
+  "cache": {
+    "entities": [
+      { "entity": "subscriber", "hits": 100, "misses": 20, "hit_rate_pct": 83.33 },
+      { "entity": "auc", "hits": 98, "misses": 22, "hit_rate_pct": 81.67 }
     ]
   },
   "api": {
-    "requests_total": [
-      { "method": "GET", "path": "/subscriber", "status": "200", "value": 55 }
-    ]
-  },
-  "cache": {
-    "hits_total": [
-      { "entity": "subscriber", "result": "hit",  "value": 100 },
-      { "entity": "subscriber", "result": "miss", "value": 20  },
-      { "entity": "auc",        "result": "hit",  "value": 98  },
-      { "entity": "auc",        "result": "miss", "value": 22  }
+    "requests": [
+      { "method": "GET", "path": "/api/v1/subscriber", "total": 55, "mean_ms": 2.1 }
     ]
   },
   "crypto": {
     "vectors": [
-      { "type": "eutran",  "p50_ms": 0.04, "p95_ms": 0.08, "p99_ms": 0.12, "count": 120, "sum_ms": 5.1 },
-      { "type": "eap_aka", "p50_ms": 0.04, "p95_ms": 0.07, "p99_ms": 0.10, "count": 30,  "sum_ms": 1.2 }
+      { "type": "eutran", "count": 120, "mean_ms": 0.04, "sum_ms": 5.1 },
+      { "type": "eap_aka", "count": 30, "mean_ms": 0.04, "sum_ms": 1.2 }
     ]
   },
   "tac": {
@@ -487,7 +505,7 @@ Returns a structured JSON snapshot of all HSS metrics. Designed for web dashboar
 }
 ```
 
-Latency values (`p50_ms`, `p95_ms`, `p99_ms`, `sum_ms`) are in **milliseconds**, estimated via linear interpolation of the underlying Prometheus histogram buckets. Crypto timings measure only the Milenage computation, not the database SQN increment.
+Latency fields such as `mean_ms`, `sum_ms`, and `wait_duration_ms` are in **milliseconds**. Crypto timings measure only the Milenage computation, not the database SQN increment.
 
 ```bash
 curl http://localhost:8080/api/v1/oam/metrics
@@ -509,6 +527,7 @@ Lightweight liveness probe. Returns 200 whenever the API is reachable. Use this 
 {
   "status": "ok",
   "uptime_seconds": 3600.5,
+  "started_at": "2026-03-16T04:14:30Z",
   "version": "0.3.0B"
 }
 ```
@@ -517,6 +536,7 @@ Lightweight liveness probe. Returns 200 whenever the API is reachable. Use this 
 |-------|-------------|
 | `status` | Always `"ok"` when the endpoint responds |
 | `uptime_seconds` | Seconds elapsed since the HSS process started |
+| `started_at` | RFC 3339 timestamp of when the HSS process started |
 | `version` | Running application version |
 
 ```bash
@@ -546,8 +566,8 @@ Returns the running binary version and the REST API contract version. Use this t
 | Field | Description |
 |-------|-------------|
 | `app_name` | Application name  -- always `"VectorCore HSS"` |
-| `app_version` | Binary release version. Set at build time via `-ldflags "-X .../version.AppVersion=x.y.z"`. Defaults to `0.3.0B` if not overridden. |
-| `api_version` | REST API contract version. Incremented manually when the API surface changes (new endpoints, removed fields, changed behaviour). |
+| `app_version` | Binary release version. Defaults to `0.3.0B` and is normally injected from the `Makefile` build via `-ldflags`. |
+| `api_version` | REST API contract version. Defaults to `1.0.0` and is normally injected from the `Makefile` build via `-ldflags` after manual bumping when the API surface changes. |
 
 ```bash
 curl http://localhost:8080/api/v1/oam/version
@@ -595,6 +615,39 @@ Returns a list of Diameter peers that are **directly connected** to this HSS nod
 
 ```bash
 curl http://localhost:8080/api/v1/oam/diameter/peers
+```
+
+---
+
+### Diameter Auth Failures
+
+```
+GET /api/v1/oam/diameter/auth_failures
+```
+
+Returns recent failed S6a AIR authentication attempts captured by the Diameter layer.
+
+**Response:**
+
+```json
+{
+  "failures": [
+    {
+      "imsi": "001010000000001",
+      "timestamp": "2026-03-16T05:14:30Z",
+      "reason": "Roaming not allowed",
+      "peer_addr": "10.0.0.15:3868",
+      "auth_scope": "roaming",
+      "visited_plmn": "130014",
+      "visited_mcc": "310",
+      "visited_mnc": "410"
+    }
+  ]
+}
+```
+
+```bash
+curl http://localhost:8080/api/v1/oam/diameter/auth_failures
 ```
 
 ---
@@ -1844,12 +1897,14 @@ curl -s -X POST $BASE/subscriber \
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/v1/docs` | Swagger UI (interactive API explorer) |
-| GET | `/api/v1/openapi.json` | OpenAPI 3.1 specification |
+| GET | `/api/v1/docs` | Interactive API docs |
+| GET | `/api/v1/openapi.yaml` | OpenAPI 3.1 specification |
+| GET | `/api/v1/openapi.json` | OpenAPI 3.1 specification (JSON form) |
 | GET | `/metrics` | Prometheus text format metrics |
 | GET | `/api/v1/oam/health` | Liveness probe  -- status, uptime, version |
 | GET | `/api/v1/oam/metrics` | JSON metrics snapshot for dashboards |
 | GET | `/api/v1/oam/version` | App and API version |
+| GET | `/api/v1/oam/diameter/auth_failures` | List recent S6a authentication failures |
 | GET | `/api/v1/oam/operation_log` | List operation log (newest first) |
 | GET | `/api/v1/oam/operation_log/{id}` | Get operation log entry |
 | POST | `/api/v1/oam/operation_log/{id}/rollback` | Rollback a recorded operation |

@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -112,6 +113,41 @@ udm:
 	}
 	if len(cfg.UDM.SUCIDecryptionKeys) != 1 {
 		t.Fatalf("expected legacy hnet_keys to map, got %+v", cfg.UDM.SUCIDecryptionKeys)
+	}
+}
+
+func TestLoadValidatesDiameterDSCP(t *testing.T) {
+	tests := []struct {
+		name    string
+		dscp    int
+		wantErr bool
+	}{
+		{name: "default", dscp: 0},
+		{name: "ef", dscp: 46},
+		{name: "max", dscp: 63},
+		{name: "negative", dscp: -1, wantErr: true},
+		{name: "too high", dscp: 64, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfgText := `
+hss:
+  OriginHost: hss01.example.org
+  OriginRealm: example.org
+  DiameterDSCP: ` + strconv.Itoa(tt.dscp) + `
+database:
+  db_type: sqlite
+  database: ":memory:"
+`
+			path := writeTestConfig(t, cfgText)
+			_, err := Load(path)
+			if tt.wantErr && err == nil {
+				t.Fatal("expected Load() error")
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+		})
 	}
 }
 

@@ -361,22 +361,19 @@ func (s *Server) SendIDRByIMSI(_ context.Context, imsi string) error {
 // Returns the first fatal error from either listener.
 func (s *Server) Start() error {
 	addr := net.JoinHostPort(s.cfg.HSS.BindAddress, strconv.Itoa(s.cfg.HSS.BindPort))
+	dscp := s.cfg.HSS.DiameterDSCP
 
 	errCh := make(chan error, 2)
 
 	// TCP listener (always on)
 	go func() {
-		s.log.Info("diameter: TCP listening", zap.String("addr", addr))
-		srv := &diam.Server{Network: "tcp", Addr: addr, Handler: s.sm, Dict: dict.Default}
-		errCh <- srv.ListenAndServe()
+		errCh <- s.serveNetwork("tcp", addr, dscp)
 	}()
 
 	// SCTP listener (optional — requires kernel SCTP module)
 	if s.cfg.HSS.EnableSCTP {
 		go func() {
-			s.log.Info("diameter: SCTP listening", zap.String("addr", addr))
-			srv := &diam.Server{Network: "sctp", Addr: addr, Handler: s.sm, Dict: dict.Default}
-			if err := srv.ListenAndServe(); err != nil {
+			if err := s.serveNetwork("sctp", addr, dscp); err != nil {
 				s.log.Error("diameter: SCTP listener failed — is the SCTP kernel module loaded?",
 					zap.Error(err))
 				errCh <- err
@@ -386,4 +383,30 @@ func (s *Server) Start() error {
 
 	// Block until either listener dies.
 	return <-errCh
+}
+
+func (s *Server) serveNetwork(network, addr string, dscp int) error {
+	fields := []zap.Field{zap.String("addr", addr)}
+	if dscp > 0 {
+		fields = append(fields, zap.Int("dscp", dscp), zap.Int("tos", dscpToTOS(dscp)))
+	}
+	s.log.Info("diameter: "+network+" listening", fields...)
+
+	ln, err := diam.MultistreamListen(network, addr)
+	if err != nil {
+		return err
+	}
+	if dscp > 0 {
+		if err := applyDiameterDSCPToSocket(ln, dscp); err != nil {
+			s.log.Warn("diameter: failed to apply DSCP marking to listener",
+				zap.String("transport", network),
+				zap.String("addr", addr),
+				zap.Int("dscp", dscp),
+				zap.Error(err),
+			)
+		}
+	}
+	ln = maybeWrapDSCPListener(ln, dscp, s.log)
+	srv := &diam.Server{Network: network, Addr: addr, Handler: s.sm, Dict: dict.Default}
+	return srv.Serve(ln)
 }
