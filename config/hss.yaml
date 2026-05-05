@@ -72,8 +72,8 @@ gsup:
   bind_port: 4222
 
 pcrf:
-  # TFT handling for outbound Gx policy. Leave as standard for Cisco QVPC-SI.
-  # Use flip-permit-in only for PGWs/UPFs that cannot handle permit-in flow filters.
+  # TFT handling for outbound Gx policy. .
+  # Use flip-permit-in only for PGWs/UPFs that cannot handle permit-in flow filters. OPen5GS for example.
   # options: standard, flip-permit-in
   tft_handling: standard
 
