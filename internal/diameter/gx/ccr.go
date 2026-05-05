@@ -377,22 +377,45 @@ func ApplyTFTHandling(tft string, mode string) (string, bool) {
 	}
 
 	tokens := strings.Fields(tft)
-	if len(tokens) < 9 ||
+	if len(tokens) < 7 ||
 		!strings.EqualFold(tokens[0], "permit") ||
 		!strings.EqualFold(tokens[1], "in") ||
-		!strings.EqualFold(tokens[3], "from") ||
-		!strings.EqualFold(tokens[6], "to") {
+		!strings.EqualFold(tokens[3], "from") {
 		return tft, false
 	}
 
+	toIdx := -1
+	for i := 5; i < len(tokens); i++ {
+		if strings.EqualFold(tokens[i], "to") {
+			toIdx = i
+			break
+		}
+	}
+	if toIdx == -1 || toIdx == 4 || toIdx == len(tokens)-1 {
+		return tft, false
+	}
+
+	optionIdx := len(tokens)
+	for i := toIdx + 2; i < len(tokens); i++ {
+		if isIPFilterRuleOption(tokens[i]) {
+			optionIdx = i
+			break
+		}
+	}
+	if optionIdx == toIdx+1 {
+		return tft, false
+	}
+
+	src := tokens[4:toIdx]
+	dst := tokens[toIdx+1 : optionIdx]
 	rewritten := []string{
 		"permit", "out", tokens[2],
-		"from", tokens[7], tokens[8],
-		"to", tokens[4], tokens[5],
+		"from",
 	}
-	if len(tokens) > 9 {
-		rewritten = append(rewritten, tokens[9:]...)
-	}
+	rewritten = append(rewritten, dst...)
+	rewritten = append(rewritten, "to")
+	rewritten = append(rewritten, src...)
+	rewritten = append(rewritten, tokens[optionIdx:]...)
 	return strings.Join(rewritten, " "), true
 }
 
@@ -404,6 +427,15 @@ func shouldRewritePermitInTFT(tft string, mode string) bool {
 	return len(tokens) >= 2 &&
 		strings.EqualFold(tokens[0], "permit") &&
 		strings.EqualFold(tokens[1], "in")
+}
+
+func isIPFilterRuleOption(token string) bool {
+	switch strings.ToLower(token) {
+	case "frag", "ipoptions", "tcpoptions", "established", "setup", "tcpflags", "icmptypes":
+		return true
+	default:
+		return false
+	}
 }
 
 // extractIMSI finds the IMSI from a Subscription-Id list (Type=1 END_USER_IMSI).

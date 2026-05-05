@@ -136,6 +136,12 @@ func (h *Handlers) AAR(conn diam.Conn, msg *diam.Message) (*diam.Message, error)
 			var flowAVPs []*diam.AVP
 			for _, sc := range r.subComponents {
 				for _, fd := range sc {
+					effectiveFD, rewritten := h.applyTFTHandling(fd)
+					if rewritten {
+						h.log.Debug("rx: TFT rewrite applied", zap.String("original", fd), zap.String("effective", effectiveFD))
+					}
+					fd = effectiveFD
+
 					dir := flowDirectionBidirectional
 					lower := strings.ToLower(fd)
 					if strings.HasPrefix(lower, "permit out") {

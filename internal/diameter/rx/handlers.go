@@ -9,6 +9,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/svinson1121/vectorcore-hss/internal/config"
+	"github.com/svinson1121/vectorcore-hss/internal/diameter/gx"
 	"github.com/svinson1121/vectorcore-hss/internal/repository"
 )
 
@@ -23,6 +24,7 @@ type Handlers struct {
 	originHost  string
 	originRealm string
 	peers       PeerLookup
+	tftHandling string
 
 	mu       sync.Mutex
 	sessions map[string]*rxSession // Rx session-id → rxSession
@@ -54,6 +56,11 @@ func NewHandlers(cfg *config.Config, store repository.Repository, log *zap.Logge
 		originHost:  cfg.HSS.OriginHost,
 		originRealm: cfg.HSS.OriginRealm,
 		peers:       peers,
+		tftHandling: cfg.PCRF.TFTHandling,
 		sessions:    make(map[string]*rxSession),
 	}
+}
+
+func (h *Handlers) applyTFTHandling(tft string) (string, bool) {
+	return gx.ApplyTFTHandling(tft, h.tftHandling)
 }

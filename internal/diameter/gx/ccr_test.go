@@ -55,8 +55,31 @@ func TestApplyTFTHandlingFlipPermitInLeavesPermitOutUnchanged(t *testing.T) {
 	}
 }
 
-func TestApplyTFTHandlingFlipPermitInIgnoresMalformed(t *testing.T) {
+func TestApplyTFTHandlingFlipPermitInRewritesWithoutPorts(t *testing.T) {
 	in := "permit in 17 from 1.1.1.1 to 2.2.2.2"
+	got, rewritten := ApplyTFTHandling(in, "flip-permit-in")
+	if !rewritten {
+		t.Fatal("expected rewrite")
+	}
+	want := "permit out 17 from 2.2.2.2 to 1.1.1.1"
+	if got != want {
+		t.Fatalf("unexpected TFT rewrite: got %q want %q", got, want)
+	}
+}
+
+func TestApplyTFTHandlingFlipPermitInPreservesOptions(t *testing.T) {
+	got, rewritten := ApplyTFTHandling("permit in 17 from 1.1.1.1 50021 to 2.2.2.2 54939 established", "flip-permit-in")
+	if !rewritten {
+		t.Fatal("expected rewrite")
+	}
+	want := "permit out 17 from 2.2.2.2 54939 to 1.1.1.1 50021 established"
+	if got != want {
+		t.Fatalf("unexpected TFT rewrite: got %q want %q", got, want)
+	}
+}
+
+func TestApplyTFTHandlingFlipPermitInIgnoresMalformed(t *testing.T) {
+	in := "permit in 17 from 1.1.1.1 50021"
 	got, rewritten := ApplyTFTHandling(in, "flip-permit-in")
 	if rewritten {
 		t.Fatal("expected malformed TFT to remain unchanged")
@@ -93,11 +116,11 @@ func TestBuildChargingRuleDefinitionLogsMalformedPermitInWarning(t *testing.T) {
 	core, logs := observer.New(zap.WarnLevel)
 	logger := zap.New(core)
 	rule := models.ChargingRule{RuleName: "rule1", MBRDown: 1, MBRUp: 1}
-	tfts := []models.TFT{{TFTString: "permit in 17 from 1.1.1.1 to 2.2.2.2", Direction: 1}}
+	tfts := []models.TFT{{TFTString: "permit in 17 from 1.1.1.1 50021", Direction: 1}}
 
 	_ = buildChargingRuleDefinition(rule, tfts, "", "flip-permit-in", logger)
 
-	entries := logs.FilterMessage(`Unable to rewrite malformed permit-in TFT; passing unchanged: "permit in 17 from 1.1.1.1 to 2.2.2.2"`).All()
+	entries := logs.FilterMessage(`Unable to rewrite malformed permit-in TFT; passing unchanged: "permit in 17 from 1.1.1.1 50021"`).All()
 	if len(entries) != 1 {
 		t.Fatalf("expected malformed TFT warning, got %d matching entries", len(entries))
 	}
