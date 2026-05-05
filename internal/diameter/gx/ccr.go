@@ -172,7 +172,7 @@ func (h *Handlers) CCR(conn diam.Conn, msg *diam.Message) (*diam.Message, error)
 		if rule.TFTGroupID != nil {
 			tfts, _ = h.store.GetTFTsByGroupID(ctx, *rule.TFTGroupID)
 		}
-		ruleAVP := buildChargingRuleDefinition(rule, tfts, ueIP)
+		ruleAVP := buildChargingRuleDefinition(rule, tfts, ueIP, h.tftHandling, h.log)
 		ans.NewAVP(avpChargingRuleInstall, avp.Mbit|avp.Vbit, Vendor3GPP, &diam.GroupedAVP{
 			AVP: []*diam.AVP{ruleAVP},
 		})
@@ -290,7 +290,11 @@ func buildDefaultBearerQoS(a *models.APN) *diam.GroupedAVP {
 
 // buildChargingRuleDefinition builds a full Charging-Rule-Definition AVP from a
 // ChargingRule model including QoS parameters, MBR/GBR, precedence, and TFT flow filters.
-func buildChargingRuleDefinition(rule models.ChargingRule, tfts []models.TFT, ueIP string) *diam.AVP {
+func buildChargingRuleDefinition(rule models.ChargingRule, tfts []models.TFT, ueIP string, tftHandling string, log *zap.Logger) *diam.AVP {
+	if log == nil {
+		log = zap.NewNop()
+	}
+
 	cap_ := uint32(1)
 	vuln := uint32(0)
 	if rule.ARPPreemptionCapability != nil && *rule.ARPPreemptionCapability {
@@ -335,6 +339,13 @@ func buildChargingRuleDefinition(rule models.ChargingRule, tfts []models.TFT, ue
 	for _, tft := range tfts {
 		tftStr := strings.ReplaceAll(tft.TFTString, "{{UE_IP}}", ueIP)
 		tftStr = strings.ReplaceAll(tftStr, "{UE_IP}", ueIP)
+		effectiveTFT, rewritten := ApplyTFTHandling(tftStr, tftHandling)
+		if rewritten {
+			log.Debug("TFT rewrite applied: mode=flip-permit-in original=\"" + tftStr + "\" effective=\"" + effectiveTFT + "\"")
+		} else if shouldRewritePermitInTFT(tftStr, tftHandling) {
+			log.Warn("Unable to rewrite malformed permit-in TFT; passing unchanged: \"" + tftStr + "\"")
+		}
+		tftStr = effectiveTFT
 		defAVPs = append(defAVPs, diam.NewAVP(avpFlowInformation, avp.Vbit, Vendor3GPP, &diam.GroupedAVP{AVP: []*diam.AVP{
 			diam.NewAVP(avpFlowDirection, avp.Vbit, Vendor3GPP, datatype.Enumerated(tft.Direction)),
 			diam.NewAVP(avpFlowDescription, avp.Mbit|avp.Vbit, Vendor3GPP, datatype.IPFilterRule(tftStr)),
@@ -358,6 +369,41 @@ func buildChargingRuleDefinition(rule models.ChargingRule, tfts []models.TFT, ue
 	}
 
 	return diam.NewAVP(avpChargingRuleDefinition, avp.Mbit|avp.Vbit, Vendor3GPP, &diam.GroupedAVP{AVP: defAVPs})
+}
+
+func ApplyTFTHandling(tft string, mode string) (string, bool) {
+	if !shouldRewritePermitInTFT(tft, mode) {
+		return tft, false
+	}
+
+	tokens := strings.Fields(tft)
+	if len(tokens) < 9 ||
+		!strings.EqualFold(tokens[0], "permit") ||
+		!strings.EqualFold(tokens[1], "in") ||
+		!strings.EqualFold(tokens[3], "from") ||
+		!strings.EqualFold(tokens[6], "to") {
+		return tft, false
+	}
+
+	rewritten := []string{
+		"permit", "out", tokens[2],
+		"from", tokens[7], tokens[8],
+		"to", tokens[4], tokens[5],
+	}
+	if len(tokens) > 9 {
+		rewritten = append(rewritten, tokens[9:]...)
+	}
+	return strings.Join(rewritten, " "), true
+}
+
+func shouldRewritePermitInTFT(tft string, mode string) bool {
+	if mode != "flip-permit-in" {
+		return false
+	}
+	tokens := strings.Fields(tft)
+	return len(tokens) >= 2 &&
+		strings.EqualFold(tokens[0], "permit") &&
+		strings.EqualFold(tokens[1], "in")
 }
 
 // extractIMSI finds the IMSI from a Subscription-Id list (Type=1 END_USER_IMSI).

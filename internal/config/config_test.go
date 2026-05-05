@@ -1,9 +1,12 @@
 package config
 
 import (
+	"bytes"
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -88,6 +91,101 @@ database:
 	}
 	if cfg.PCF.SBIClient.ReconnectHoldoffTime != 2*time.Second {
 		t.Fatalf("expected default PCF reconnect holdoff 2s, got %v", cfg.PCF.SBIClient.ReconnectHoldoffTime)
+	}
+}
+
+func TestLoadDefaultsPCRFTFTHandlingWhenMissing(t *testing.T) {
+	cfgText := `
+hss:
+  OriginHost: hss01.example.org
+  OriginRealm: example.org
+database:
+  db_type: sqlite
+  database: ":memory:"
+`
+	path := writeTestConfig(t, cfgText)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.PCRF.TFTHandling != "standard" {
+		t.Fatalf("expected standard TFT handling, got %q", cfg.PCRF.TFTHandling)
+	}
+}
+
+func TestLoadDefaultsPCRFTFTHandlingWhenEmpty(t *testing.T) {
+	cfgText := `
+hss:
+  OriginHost: hss01.example.org
+  OriginRealm: example.org
+database:
+  db_type: sqlite
+  database: ":memory:"
+pcrf:
+  tft_handling: ""
+`
+	path := writeTestConfig(t, cfgText)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.PCRF.TFTHandling != "standard" {
+		t.Fatalf("expected standard TFT handling, got %q", cfg.PCRF.TFTHandling)
+	}
+}
+
+func TestLoadDefaultsPCRFTFTHandlingWhenNull(t *testing.T) {
+	cfgText := `
+hss:
+  OriginHost: hss01.example.org
+  OriginRealm: example.org
+database:
+  db_type: sqlite
+  database: ":memory:"
+pcrf:
+  tft_handling: null
+`
+	path := writeTestConfig(t, cfgText)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.PCRF.TFTHandling != "standard" {
+		t.Fatalf("expected standard TFT handling, got %q", cfg.PCRF.TFTHandling)
+	}
+}
+
+func TestLoadInvalidPCRFTFTHandlingLogsWarningAndDefaults(t *testing.T) {
+	var buf bytes.Buffer
+	oldOutput := log.Writer()
+	oldFlags := log.Flags()
+	log.SetOutput(&buf)
+	log.SetFlags(0)
+	defer func() {
+		log.SetOutput(oldOutput)
+		log.SetFlags(oldFlags)
+	}()
+
+	cfgText := `
+hss:
+  OriginHost: hss01.example.org
+  OriginRealm: example.org
+database:
+  db_type: sqlite
+  database: ":memory:"
+pcrf:
+  tft_handling: broken
+`
+	path := writeTestConfig(t, cfgText)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.PCRF.TFTHandling != "standard" {
+		t.Fatalf("expected standard TFT handling, got %q", cfg.PCRF.TFTHandling)
+	}
+	if !strings.Contains(buf.String(), `Invalid pcrf.tft_handling value "broken"; defaulting to standard`) {
+		t.Fatalf("expected invalid config warning, got %q", buf.String())
 	}
 }
 

@@ -20,6 +20,7 @@ type Handlers struct {
 	originRealm string
 	peers       PeerLookup
 	pub         geored.TypedPublisher
+	tftHandling string
 }
 
 func NewHandlers(cfg *config.Config, store repository.Repository, log *zap.Logger, peers PeerLookup) *Handlers {
@@ -30,6 +31,7 @@ func NewHandlers(cfg *config.Config, store repository.Repository, log *zap.Logge
 		originRealm: cfg.HSS.OriginRealm,
 		peers:       peers,
 		pub:         geored.NoopTypedPublisher{},
+		tftHandling: cfg.PCRF.TFTHandling,
 	}
 }
 

@@ -2,7 +2,9 @@ package config
 
 import (
 	"fmt"
+	"log"
 	"os"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -17,6 +19,7 @@ type Config struct {
 	Geored   GeoredConfig   `yaml:"geored"`
 	API      APIConfig      `yaml:"api"`
 	GSUP     GSUPConfig     `yaml:"gsup"`
+	PCRF     PCRFConfig     `yaml:"pcrf"`
 	FiveGC   FiveGCConfig   `yaml:"5gc"`
 	UDM      UDMConfig      `yaml:"udm"`
 	PCF      PCFConfig      `yaml:"pcf"`
@@ -129,6 +132,10 @@ type GSUPConfig struct {
 	Enabled     bool   `yaml:"enabled"`
 	BindAddress string `yaml:"bind_address"`
 	BindPort    int    `yaml:"bind_port"`
+}
+
+type PCRFConfig struct {
+	TFTHandling string `yaml:"tft_handling"`
 }
 
 type RoamingConfig struct {
@@ -246,6 +253,7 @@ func Load(path string) (*Config, error) {
 		Roaming:  RoamingConfig{AllowUndefinedNetworks: true},
 		API:      APIConfig{Enabled: true, BindAddress: "0.0.0.0", BindPort: 8080},
 		GSUP:     GSUPConfig{Enabled: false, BindAddress: "::", BindPort: 4222},
+		PCRF:     PCRFConfig{TFTHandling: "standard"},
 		UDM:      UDMConfig{Enabled: false, BindAddress: "::", BindPort: 7777, SBIClient: SBIClientConfig{Mode: "direct", ReconnectHoldoffTime: 2 * time.Second}},
 		PCF:      PCFConfig{Enabled: false, BindAddress: "::", BindPort: 7778, SBIClient: SBIClientConfig{Mode: "direct", ReconnectHoldoffTime: 2 * time.Second}},
 	}
@@ -262,10 +270,25 @@ func Load(path string) (*Config, error) {
 	if cfg.HSS.DiameterDSCP < 0 || cfg.HSS.DiameterDSCP > 63 {
 		return nil, fmt.Errorf("config: hss.DiameterDSCP must be between 0 and 63")
 	}
+	normalizePCRFConfig(&cfg.PCRF)
 	if cfg.Database.Type == "" {
 		return nil, fmt.Errorf("config: database.db_type is required")
 	}
 	return cfg, nil
+}
+
+func normalizePCRFConfig(cfg *PCRFConfig) {
+	mode := strings.TrimSpace(cfg.TFTHandling)
+	switch mode {
+	case "", "standard", "flip-permit-in":
+		if mode == "" {
+			mode = "standard"
+		}
+		cfg.TFTHandling = mode
+	default:
+		log.Printf("Invalid pcrf.tft_handling value %q; defaulting to standard", cfg.TFTHandling)
+		cfg.TFTHandling = "standard"
+	}
 }
 
 func normalizeFiveGC(cfg *Config) {

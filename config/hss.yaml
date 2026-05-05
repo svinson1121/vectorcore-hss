@@ -71,6 +71,12 @@ gsup:
   bind_address: "::"
   bind_port: 4222
 
+pcrf:
+  # TFT handling for outbound Gx policy. Leave as standard for Cisco QVPC-SI.
+  # Use flip-permit-in only for PGWs/UPFs that cannot handle permit-in flow filters.
+  # options: standard, flip-permit-in
+  tft_handling: standard
+
 5gc:
   # Shared 5G SBI listener for both UDM/UDR and PCF routes.
   sbi:
