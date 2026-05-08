@@ -18,6 +18,95 @@ const dictXML = `<?xml version="1.0" encoding="UTF-8"?>
 <diameter>
   <application id="16777265" type="auth" name="SWx">
     <vendor id="10415" name="3GPP"/>
+    <command code="301" short="SA" name="Server-Assignment">
+      <request>
+        <rule avp="Session-Id" required="true" max="1"/>
+        <rule avp="Auth-Session-State" required="true" max="1"/>
+        <rule avp="Origin-Host" required="true" max="1"/>
+        <rule avp="Origin-Realm" required="true" max="1"/>
+        <rule avp="Destination-Realm" required="false" max="1"/>
+        <rule avp="User-Name" required="true" max="1"/>
+        <rule avp="Server-Assignment-Type" required="true" max="1"/>
+      </request>
+      <answer>
+        <rule avp="Session-Id" required="true" max="1"/>
+        <rule avp="Auth-Session-State" required="false" max="1"/>
+        <rule avp="Result-Code" required="false" max="1"/>
+        <rule avp="Experimental-Result" required="false" max="1"/>
+        <rule avp="Origin-Host" required="true" max="1"/>
+        <rule avp="Origin-Realm" required="true" max="1"/>
+        <rule avp="User-Name" required="false" max="1"/>
+        <rule avp="Non-3GPP-User-Data" required="false" max="1"/>
+      </answer>
+    </command>
+    <command code="303" short="MA" name="Multimedia-Authentication">
+      <request>
+        <rule avp="Session-Id" required="true" max="1"/>
+        <rule avp="Auth-Session-State" required="true" max="1"/>
+        <rule avp="Origin-Host" required="true" max="1"/>
+        <rule avp="Origin-Realm" required="true" max="1"/>
+        <rule avp="Destination-Realm" required="true" max="1"/>
+        <rule avp="User-Name" required="true" max="1"/>
+        <rule avp="SIP-Number-Auth-Items" required="false" max="1"/>
+        <rule avp="SIP-Auth-Data-Item" required="false" max="1"/>
+      </request>
+      <answer>
+        <rule avp="Session-Id" required="true" max="1"/>
+        <rule avp="Auth-Session-State" required="true" max="1"/>
+        <rule avp="Result-Code" required="false" max="1"/>
+        <rule avp="Experimental-Result" required="false" max="1"/>
+        <rule avp="Origin-Host" required="true" max="1"/>
+        <rule avp="Origin-Realm" required="true" max="1"/>
+        <rule avp="User-Name" required="false" max="1"/>
+        <rule avp="SIP-Number-Auth-Items" required="false" max="1"/>
+        <rule avp="SIP-Auth-Data-Item" required="false"/>
+      </answer>
+    </command>
+    <avp name="SIP-Number-Auth-Items" code="607" must="M,V" must-not="-" may-encrypt="N" vendor-id="10415">
+      <data type="Unsigned32"/>
+    </avp>
+    <avp name="SIP-Authentication-Scheme" code="608" must="M,V" must-not="-" may-encrypt="N" vendor-id="10415">
+      <data type="UTF8String"/>
+    </avp>
+    <avp name="SIP-Authenticate" code="609" must="M,V" must-not="-" may-encrypt="N" vendor-id="10415">
+      <data type="OctetString"/>
+    </avp>
+    <avp name="SIP-Authorization" code="610" must="M,V" must-not="-" may-encrypt="N" vendor-id="10415">
+      <data type="OctetString"/>
+    </avp>
+    <avp name="SIP-Authentication-Context" code="611" must="V" must-not="-" may-encrypt="N" vendor-id="10415">
+      <data type="OctetString"/>
+    </avp>
+    <avp name="SIP-Auth-Data-Item" code="612" must="M,V" must-not="-" may-encrypt="N" vendor-id="10415">
+      <data type="Grouped">
+        <rule avp="SIP-Item-Number" required="false" max="1"/>
+        <rule avp="SIP-Authentication-Scheme" required="false" max="1"/>
+        <rule avp="SIP-Authenticate" required="false" max="1"/>
+        <rule avp="SIP-Authorization" required="false" max="1"/>
+        <rule avp="SIP-Authentication-Context" required="false" max="1"/>
+        <rule avp="Confidentiality-Key" required="false" max="1"/>
+        <rule avp="Integrity-Key" required="false" max="1"/>
+      </data>
+    </avp>
+    <avp name="SIP-Item-Number" code="613" must="M,V" must-not="-" may-encrypt="N" vendor-id="10415">
+      <data type="Unsigned32"/>
+    </avp>
+    <avp name="Server-Assignment-Type" code="614" must="M,V" must-not="-" may-encrypt="N" vendor-id="10415">
+      <data type="Enumerated">
+        <item code="0" name="NO_ASSIGNMENT"/>
+        <item code="1" name="REGISTRATION"/>
+        <item code="2" name="RE_REGISTRATION"/>
+        <item code="3" name="UNREGISTERED_USER"/>
+        <item code="4" name="TIMEOUT_DEREGISTRATION"/>
+        <item code="5" name="USER_DEREGISTRATION"/>
+        <item code="6" name="TIMEOUT_DEREGISTRATION_STORE_SERVER_NAME"/>
+        <item code="7" name="USER_DEREGISTRATION_STORE_SERVER_NAME"/>
+        <item code="8" name="ADMINISTRATIVE_DEREGISTRATION"/>
+        <item code="9" name="AUTHENTICATION_FAILURE"/>
+        <item code="10" name="AUTHENTICATION_TIMEOUT"/>
+        <item code="11" name="DEREGISTRATION_TOO_MUCH_DATA"/>
+      </data>
+    </avp>
     <avp name="Confidentiality-Key" code="625" must="M,V" must-not="-" may-encrypt="N" vendor-id="10415">
       <data type="OctetString"/>
     </avp>

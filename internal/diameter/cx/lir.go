@@ -45,7 +45,7 @@ func (h *Handlers) LIR(conn diam.Conn, msg *diam.Message) (*diam.Message, error)
 	}
 	if err == repository.ErrNotFound {
 		h.log.Warn("cx: LIR unknown identity", zap.String("identity", identity))
-		return avputil.ConstructFailureAnswer(msg, lir.SessionID, h.originHost, h.originRealm, DiameterErrorUserUnknown), err
+		return avputil.ConstructFailureAnswer(msg, lir.SessionID, h.originHost, h.originRealm, DiameterErrorUserUnknown), nil
 	}
 	if err != nil {
 		return avputil.ConstructFailureAnswer(msg, lir.SessionID, h.originHost, h.originRealm, diam.UnableToComply), err

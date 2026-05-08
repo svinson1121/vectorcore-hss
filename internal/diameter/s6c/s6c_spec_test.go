@@ -892,8 +892,8 @@ func TestSRISM_UnknownSubscriber(t *testing.T) {
 
 	h := newTestHandlers(store)
 	ans, err := h.SRISR(nil, buildSRISMByMSISDN(t, "33600000000"))
-	if err == nil {
-		t.Fatal("expected error for unknown subscriber, got nil")
+	if err != nil {
+		t.Fatalf("SRISR returned error: %v", err)
 	}
 
 	// TS 29.272 §7.4.2.1: error answer carries Experimental-Result-Code 5001

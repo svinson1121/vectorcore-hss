@@ -40,7 +40,7 @@ func (h *Handlers) SRISR(conn diam.Conn, msg *diam.Message) (*diam.Message, erro
 
 	if err == repository.ErrNotFound {
 		h.log.Warn("s6c: SRI-SM unknown subscriber")
-		return avputil.ConstructFailureAnswer(msg, req.SessionID, h.originHost, h.originRealm, avputil.DiameterErrorUserUnknown), err
+		return avputil.ConstructFailureAnswer(msg, req.SessionID, h.originHost, h.originRealm, avputil.DiameterErrorUserUnknown), nil
 	}
 	if err != nil {
 		h.log.Error("s6c: SRI-SM store error", zap.Error(err))
