@@ -118,6 +118,9 @@ const dictXML = `<?xml version="1.0" encoding="UTF-8"?>
         <rule avp="Non-3GPP-IP-Access" required="false" max="1"/>
         <rule avp="Non-3GPP-IP-Access-APN" required="false" max="1"/>
         <rule avp="AN-Trusted" required="false" max="1"/>
+        <rule avp="APN-Configuration" required="false"/>
+        <rule avp="AMBR" required="false" max="1"/>
+        <rule avp="Session-Timeout" required="false" max="1"/>
       </data>
     </avp>
     <avp name="Non-3GPP-IP-Access" code="1501" must="M,V" must-not="-" may-encrypt="N" vendor-id="10415">

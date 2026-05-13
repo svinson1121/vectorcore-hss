@@ -10,6 +10,10 @@ const (
 	Non3GPPAccessAllowed = 0
 	Non3GPPAccessBarred  = 1
 
+	// Non-3GPP-IP-Access-APN values
+	Non3GPPAPNsEnable  = 0
+	Non3GPPAPNsDisable = 1
+
 	// AN-Trusted values
 	ANTrusted   = 0
 	ANUntrusted = 1
@@ -19,6 +23,7 @@ const (
 	avpIntegrityKey       = uint32(626)
 	avpNon3GPPUserData    = uint32(1500)
 	avpNon3GPPIPAccess    = uint32(1501)
+	avpNon3GPPIPAccessAPN = uint32(1502)
 	avpANTrusted          = uint32(1503)
 
 	// Shared AVP codes (defined in Cx dict, used here by code)

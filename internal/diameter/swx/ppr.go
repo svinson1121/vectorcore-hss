@@ -1,6 +1,7 @@
 package swx
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -26,6 +27,18 @@ func (h *Handlers) SendPPR(imsi, destHost, destRealm string, accessAllowed bool)
 	if !accessAllowed {
 		accessStatus = Non3GPPAccessBarred
 	}
+	userData := &diam.GroupedAVP{AVP: []*diam.AVP{
+		diam.NewAVP(avpNon3GPPIPAccess, avp.Mbit|avp.Vbit, Vendor3GPP,
+			datatype.Enumerated(accessStatus)),
+	}}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if sub, err := h.store.GetSubscriberByIMSI(ctx, imsi); err == nil {
+		userData = h.buildNon3GPPUserData(ctx, sub, accessStatus)
+	} else {
+		h.log.Warn("swx: PPR using access-only profile",
+			zap.String("imsi", imsi), zap.Error(err))
+	}
 
 	sid := fmt.Sprintf("%s;%d;ppr", h.originHost, time.Now().UnixNano())
 	msg := diam.NewRequest(cmdPPR, AppIDSWx, nil)
@@ -37,10 +50,7 @@ func (h *Handlers) SendPPR(imsi, destHost, destRealm string, accessAllowed bool)
 	msg.NewAVP(avp.DestinationRealm, avp.Mbit, 0, datatype.DiameterIdentity(destRealm))
 	msg.NewAVP(avp.UserName, avp.Mbit, 0, datatype.UTF8String(imsi))
 	msg.NewAVP(avpNon3GPPUserData, avp.Mbit|avp.Vbit, Vendor3GPP,
-		&diam.GroupedAVP{AVP: []*diam.AVP{
-			diam.NewAVP(avpNon3GPPIPAccess, avp.Mbit|avp.Vbit, Vendor3GPP,
-				datatype.Enumerated(accessStatus)),
-		}})
+		userData)
 
 	if _, err := msg.WriteTo(conn); err != nil {
 		h.log.Error("swx: PPR send failed",

@@ -55,10 +55,7 @@ func (h *Handlers) SAR(conn diam.Conn, msg *diam.Message) (*diam.Message, error)
 			accessStatus = Non3GPPAccessBarred
 		}
 		ans.NewAVP(avpNon3GPPUserData, avp.Mbit|avp.Vbit, Vendor3GPP,
-			&diam.GroupedAVP{AVP: []*diam.AVP{
-				diam.NewAVP(avpNon3GPPIPAccess, avp.Mbit|avp.Vbit, Vendor3GPP,
-					datatype.Enumerated(accessStatus)),
-			}})
+			h.buildNon3GPPUserData(ctx, sub, accessStatus))
 	case sarUserDeregistration, sarAdministrativeDeregistration:
 		// Deregistration — success only, no profile data
 	}
