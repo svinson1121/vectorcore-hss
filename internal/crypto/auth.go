@@ -2,6 +2,9 @@ package crypto
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"time"
@@ -100,6 +103,37 @@ type EAPAKAVector struct {
 	AUTN []byte
 	CK   []byte // Confidentiality Key
 	IK   []byte // Integrity Key
+}
+
+// DeriveEAPAKAPrimeKeys derives CK' and IK' for EAP-AKA' per TS 33.402 Annex A.4.
+// The SQN XOR AK input is the first six octets of AUTN.
+func DeriveEAPAKAPrimeKeys(ck, ik []byte, anid string, sqnXorAK []byte) ([]byte, []byte, error) {
+	if len(ck) != 16 || len(ik) != 16 {
+		return nil, nil, fmt.Errorf("EAP-AKA' derivation requires 16-byte CK and IK")
+	}
+	if anid == "" {
+		return nil, nil, fmt.Errorf("EAP-AKA' derivation requires ANID")
+	}
+	if len(sqnXorAK) != 6 {
+		return nil, nil, fmt.Errorf("EAP-AKA' derivation requires 6-byte SQN XOR AK")
+	}
+
+	key := append(append([]byte{}, ck...), ik...)
+	s := []byte{0x20}
+	s = appendKDFParam(s, []byte(anid))
+	s = appendKDFParam(s, sqnXorAK)
+
+	mac := hmac.New(sha256.New, key)
+	mac.Write(s)
+	out := mac.Sum(nil)
+	return out[:16], out[16:32], nil
+}
+
+func appendKDFParam(dst, p []byte) []byte {
+	dst = append(dst, p...)
+	var l [2]byte
+	binary.BigEndian.PutUint16(l[:], uint16(len(p)))
+	return append(dst, l[:]...)
 }
 
 // GenerateEAPAKAVector generates a single EAP-AKA quintuplet from the subscriber's

@@ -13,6 +13,7 @@ package crypto
 // of the UE; these tests focus on the correctness of the custom implementation.
 
 import (
+	"bytes"
 	"encoding/hex"
 	"testing"
 
@@ -349,5 +350,30 @@ func TestKASMEDerivation(t *testing.T) {
 	}
 	if allZero {
 		t.Error("KASME is all zeros — HMAC-SHA256 failure")
+	}
+}
+
+func TestDeriveEAPAKAPrimeKeysBindsANID(t *testing.T) {
+	ck := mustDecodeHex(t, "d3c5d592327fb11c4035c6680af8c6d1")
+	ik := mustDecodeHex(t, "a0b9d5ca6c6fbf1d8e2d6f8dcb9b5432")
+	sqnXorAK := mustDecodeHex(t, "112233445566")
+
+	ckPrime1, ikPrime1, err := DeriveEAPAKAPrimeKeys(ck, ik, "wlan.mnc001.mcc001.3gppnetwork.org", sqnXorAK)
+	if err != nil {
+		t.Fatalf("derive AKA' keys: %v", err)
+	}
+	ckPrime2, ikPrime2, err := DeriveEAPAKAPrimeKeys(ck, ik, "wlan.mnc002.mcc001.3gppnetwork.org", sqnXorAK)
+	if err != nil {
+		t.Fatalf("derive AKA' keys with second ANID: %v", err)
+	}
+
+	if len(ckPrime1) != 16 || len(ikPrime1) != 16 {
+		t.Fatalf("AKA' key lengths: CK'=%d IK'=%d", len(ckPrime1), len(ikPrime1))
+	}
+	if bytes.Equal(ckPrime1, ck) || bytes.Equal(ikPrime1, ik) {
+		t.Fatal("AKA' derivation returned unmodified AKA keys")
+	}
+	if bytes.Equal(ckPrime1, ckPrime2) || bytes.Equal(ikPrime1, ikPrime2) {
+		t.Fatal("AKA' keys did not change when ANID changed")
 	}
 }

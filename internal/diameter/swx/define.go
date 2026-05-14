@@ -25,6 +25,7 @@ const (
 	avpNon3GPPIPAccess    = uint32(1501)
 	avpNon3GPPIPAccessAPN = uint32(1502)
 	avpANTrusted          = uint32(1503)
+	avpANID               = uint32(1504)
 
 	// Shared AVP codes (defined in Cx dict, used here by code)
 	avpSIPNumberAuthItems      = uint32(607)
@@ -34,9 +35,19 @@ const (
 	avpSIPItemNumber           = uint32(613)
 	avpSIPAuthDataItem         = uint32(612)
 	avpServerAssignmentType    = uint32(614)
+	avpRATType                 = uint32(1032)
 
 	// Result codes
-	DiameterErrorUserUnknown = uint32(5001)
+	DiameterErrorUserUnknown              = uint32(5001)
+	DiameterErrorAuthSchemeNotSupported   = uint32(5421)
+	DiameterAuthenticationDataUnavailable = uint32(4181)
+)
+
+const (
+	schemeEAPAKA             = "EAP-AKA"
+	schemeEAPAKAPrime        = "EAP-AKA'"
+	schemeEAPAKAPrimeUnicode = "EAP-AKA′"
+	schemeEAPSIM             = "EAP-SIM"
 )
 
 type MARSIPAuthDataItem struct {
@@ -48,8 +59,11 @@ type MAR struct {
 	OriginHost         datatype.DiameterIdentity `avp:"Origin-Host,omitempty"`
 	OriginRealm        datatype.DiameterIdentity `avp:"Origin-Realm,omitempty"`
 	UserName           datatype.UTF8String       `avp:"User-Name"`
+	RATType            datatype.Enumerated       `avp:"RAT-Type,omitempty"`
 	SIPNumberAuthItems datatype.Unsigned32       `avp:"SIP-Number-Auth-Items,omitempty"`
 	SIPAuthDataItem    *MARSIPAuthDataItem       `avp:"SIP-Auth-Data-Item,omitempty"`
+	ANID               datatype.UTF8String       `avp:"ANID,omitempty"`
+	ANTrusted          datatype.Enumerated       `avp:"AN-Trusted,omitempty"`
 	AuthSessionState   int32                     `avp:"Auth-Session-State,omitempty"`
 }
 

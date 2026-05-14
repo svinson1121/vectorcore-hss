@@ -47,8 +47,11 @@ const dictXML = `<?xml version="1.0" encoding="UTF-8"?>
         <rule avp="Origin-Realm" required="true" max="1"/>
         <rule avp="Destination-Realm" required="true" max="1"/>
         <rule avp="User-Name" required="true" max="1"/>
+        <rule avp="RAT-Type" required="false" max="1"/>
         <rule avp="SIP-Number-Auth-Items" required="false" max="1"/>
         <rule avp="SIP-Auth-Data-Item" required="false" max="1"/>
+        <rule avp="ANID" required="false" max="1"/>
+        <rule avp="AN-Trusted" required="false" max="1"/>
       </request>
       <answer>
         <rule avp="Session-Id" required="true" max="1"/>
@@ -107,6 +110,12 @@ const dictXML = `<?xml version="1.0" encoding="UTF-8"?>
         <item code="11" name="DEREGISTRATION_TOO_MUCH_DATA"/>
       </data>
     </avp>
+    <avp name="RAT-Type" code="1032" must="M,V" must-not="-" may-encrypt="N" vendor-id="10415">
+      <data type="Enumerated">
+        <item code="0" name="WLAN"/>
+        <item code="1004" name="EUTRAN"/>
+      </data>
+    </avp>
     <avp name="Confidentiality-Key" code="625" must="M,V" must-not="-" may-encrypt="N" vendor-id="10415">
       <data type="OctetString"/>
     </avp>
@@ -140,6 +149,9 @@ const dictXML = `<?xml version="1.0" encoding="UTF-8"?>
         <item code="0" name="TRUSTED"/>
         <item code="1" name="UNTRUSTED"/>
       </data>
+    </avp>
+    <avp name="ANID" code="1504" must="M,V" must-not="-" may-encrypt="N" vendor-id="10415">
+      <data type="UTF8String"/>
     </avp>
   </application>
 </diameter>`
