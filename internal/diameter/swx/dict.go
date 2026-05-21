@@ -65,6 +65,51 @@ const dictXML = `<?xml version="1.0" encoding="UTF-8"?>
         <rule avp="SIP-Auth-Data-Item" required="false"/>
       </answer>
     </command>
+    <command code="304" short="RT" name="Registration-Termination">
+      <request>
+        <rule avp="Session-Id" required="true" max="1"/>
+        <rule avp="Vendor-Specific-Application-Id" required="true" max="1"/>
+        <rule avp="Auth-Session-State" required="true" max="1"/>
+        <rule avp="Origin-Host" required="true" max="1"/>
+        <rule avp="Origin-Realm" required="true" max="1"/>
+        <rule avp="Destination-Host" required="true" max="1"/>
+        <rule avp="Destination-Realm" required="true" max="1"/>
+        <rule avp="User-Name" required="true" max="1"/>
+        <rule avp="Deregistration-Reason" required="true" max="1"/>
+      </request>
+      <answer>
+        <rule avp="Session-Id" required="true" max="1"/>
+        <rule avp="Vendor-Specific-Application-Id" required="true" max="1"/>
+        <rule avp="Auth-Session-State" required="true" max="1"/>
+        <rule avp="Result-Code" required="false" max="1"/>
+        <rule avp="Experimental-Result" required="false" max="1"/>
+        <rule avp="Origin-Host" required="true" max="1"/>
+        <rule avp="Origin-Realm" required="true" max="1"/>
+      </answer>
+    </command>
+    <command code="305" short="PP" name="Push-Profile">
+      <request>
+        <rule avp="Session-Id" required="true" max="1"/>
+        <rule avp="Vendor-Specific-Application-Id" required="true" max="1"/>
+        <rule avp="Auth-Session-State" required="true" max="1"/>
+        <rule avp="Origin-Host" required="true" max="1"/>
+        <rule avp="Origin-Realm" required="true" max="1"/>
+        <rule avp="Destination-Host" required="true" max="1"/>
+        <rule avp="Destination-Realm" required="true" max="1"/>
+        <rule avp="User-Name" required="true" max="1"/>
+        <rule avp="Non-3GPP-User-Data" required="false" max="1"/>
+        <rule avp="PPR-Flags" required="false" max="1"/>
+      </request>
+      <answer>
+        <rule avp="Session-Id" required="true" max="1"/>
+        <rule avp="Vendor-Specific-Application-Id" required="true" max="1"/>
+        <rule avp="Auth-Session-State" required="true" max="1"/>
+        <rule avp="Result-Code" required="false" max="1"/>
+        <rule avp="Experimental-Result" required="false" max="1"/>
+        <rule avp="Origin-Host" required="true" max="1"/>
+        <rule avp="Origin-Realm" required="true" max="1"/>
+      </answer>
+    </command>
     <avp name="SIP-Number-Auth-Items" code="607" must="M,V" must-not="-" may-encrypt="N" vendor-id="10415">
       <data type="Unsigned32"/>
     </avp>
@@ -110,6 +155,23 @@ const dictXML = `<?xml version="1.0" encoding="UTF-8"?>
         <item code="11" name="DEREGISTRATION_TOO_MUCH_DATA"/>
       </data>
     </avp>
+    <avp name="Deregistration-Reason" code="615" must="M,V" must-not="-" may-encrypt="N" vendor-id="10415">
+      <data type="Grouped">
+        <rule avp="Reason-Code" required="true" max="1"/>
+        <rule avp="Reason-Info" required="false" max="1"/>
+      </data>
+    </avp>
+    <avp name="Reason-Code" code="616" must="M,V" must-not="-" may-encrypt="N" vendor-id="10415">
+      <data type="Enumerated">
+        <item code="0" name="PERMANENT_TERMINATION"/>
+        <item code="1" name="NEW_SERVER_ASSIGNED"/>
+        <item code="2" name="SERVER_CHANGE"/>
+        <item code="3" name="REMOVE_S-CSCF"/>
+      </data>
+    </avp>
+    <avp name="Reason-Info" code="617" must="V" must-not="-" may-encrypt="N" vendor-id="10415">
+      <data type="UTF8String"/>
+    </avp>
     <avp name="RAT-Type" code="1032" must="M,V" must-not="-" may-encrypt="N" vendor-id="10415">
       <data type="Enumerated">
         <item code="0" name="WLAN"/>
@@ -131,6 +193,9 @@ const dictXML = `<?xml version="1.0" encoding="UTF-8"?>
         <rule avp="AMBR" required="false" max="1"/>
         <rule avp="Session-Timeout" required="false" max="1"/>
       </data>
+    </avp>
+    <avp name="PPR-Flags" code="1505" must="M,V" must-not="-" may-encrypt="N" vendor-id="10415">
+      <data type="Unsigned32"/>
     </avp>
     <avp name="Non-3GPP-IP-Access" code="1501" must="M,V" must-not="-" may-encrypt="N" vendor-id="10415">
       <data type="Enumerated">

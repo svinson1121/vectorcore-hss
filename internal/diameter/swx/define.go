@@ -28,14 +28,15 @@ const (
 	avpANID               = uint32(1504)
 
 	// Shared AVP codes (defined in Cx dict, used here by code)
-	avpSIPNumberAuthItems      = uint32(607)
-	avpSIPAuthenticationScheme = uint32(608)
-	avpSIPAuthenticate         = uint32(609)
-	avpSIPAuthorization        = uint32(610)
-	avpSIPItemNumber           = uint32(613)
-	avpSIPAuthDataItem         = uint32(612)
-	avpServerAssignmentType    = uint32(614)
-	avpRATType                 = uint32(1032)
+	avpSIPNumberAuthItems       = uint32(607)
+	avpSIPAuthenticationScheme  = uint32(608)
+	avpSIPAuthenticate          = uint32(609)
+	avpSIPAuthorization         = uint32(610)
+	avpSIPAuthenticationContext = uint32(611)
+	avpSIPItemNumber            = uint32(613)
+	avpSIPAuthDataItem          = uint32(612)
+	avpServerAssignmentType     = uint32(614)
+	avpRATType                  = uint32(1032)
 
 	// Result codes
 	DiameterErrorUserUnknown              = uint32(5001)
@@ -51,7 +52,9 @@ const (
 )
 
 type MARSIPAuthDataItem struct {
-	SIPAuthenticationScheme datatype.UTF8String `avp:"SIP-Authentication-Scheme,omitempty"`
+	SIPAuthenticationScheme  datatype.UTF8String  `avp:"SIP-Authentication-Scheme,omitempty"`
+	SIPAuthorization         datatype.OctetString `avp:"SIP-Authorization,omitempty"`
+	SIPAuthenticationContext datatype.OctetString `avp:"SIP-Authentication-Context,omitempty"`
 }
 
 type MAR struct {

@@ -149,15 +149,19 @@ func newMARRequest(imsi, scheme, anid string) *diam.Message {
 	msg.NewAVP(avp.OriginRealm, avp.Mbit, 0, datatype.DiameterIdentity("example.net"))
 	msg.NewAVP(avp.DestinationRealm, avp.Mbit, 0, datatype.DiameterIdentity("example.net"))
 	msg.NewAVP(avp.UserName, avp.Mbit, 0, datatype.UTF8String(imsi))
-	msg.NewAVP(avpRATType, avp.Mbit|avp.Vbit, Vendor3GPP, datatype.Enumerated(0))
+	msg.NewAVP(avpRATType, avp.Mbit|avp.Vbit, Vendor3GPP, datatype.Enumerated(1))
 	msg.NewAVP(avpSIPNumberAuthItems, avp.Mbit|avp.Vbit, Vendor3GPP, datatype.Unsigned32(1))
-	msg.NewAVP(avpSIPAuthDataItem, avp.Mbit|avp.Vbit, Vendor3GPP, &diam.GroupedAVP{AVP: []*diam.AVP{
+	authDataAVPs := []*diam.AVP{
 		diam.NewAVP(avpSIPAuthenticationScheme, avp.Mbit|avp.Vbit, Vendor3GPP, datatype.UTF8String(scheme)),
-	}})
+		diam.NewAVP(avpSIPAuthorization, avp.Mbit|avp.Vbit, Vendor3GPP, datatype.OctetString([]byte("identity-response"))),
+	}
 	if anid != "" {
-		msg.NewAVP(avpANID, avp.Mbit|avp.Vbit, Vendor3GPP, datatype.UTF8String(anid))
+		authDataAVPs = append(authDataAVPs,
+			diam.NewAVP(avpSIPAuthenticationContext, avp.Vbit, Vendor3GPP, datatype.OctetString([]byte(anid))),
+		)
 		msg.NewAVP(avpANTrusted, avp.Mbit|avp.Vbit, Vendor3GPP, datatype.Enumerated(ANTrusted))
 	}
+	msg.NewAVP(avpSIPAuthDataItem, avp.Mbit|avp.Vbit, Vendor3GPP, &diam.GroupedAVP{AVP: authDataAVPs})
 	return msg
 }
 

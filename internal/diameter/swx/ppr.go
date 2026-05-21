@@ -8,6 +8,7 @@ import (
 	"github.com/fiorix/go-diameter/v4/diam"
 	"github.com/fiorix/go-diameter/v4/diam/avp"
 	"github.com/fiorix/go-diameter/v4/diam/datatype"
+	"github.com/fiorix/go-diameter/v4/diam/dict"
 	"go.uber.org/zap"
 )
 
@@ -41,8 +42,10 @@ func (h *Handlers) SendPPR(imsi, destHost, destRealm string, accessAllowed bool)
 	}
 
 	sid := fmt.Sprintf("%s;%d;ppr", h.originHost, time.Now().UnixNano())
-	msg := diam.NewRequest(cmdPPR, AppIDSWx, nil)
+	msg := diam.NewRequest(cmdPPR, AppIDSWx, dict.Default)
+	msg.Header.CommandFlags |= diam.ProxiableFlag
 	msg.NewAVP(avp.SessionID, avp.Mbit, 0, datatype.UTF8String(sid))
+	msg.AddAVP(newSWxVendorSpecificApplicationID())
 	msg.NewAVP(avp.AuthSessionState, avp.Mbit, 0, datatype.Enumerated(1))
 	msg.NewAVP(avp.OriginHost, avp.Mbit, 0, datatype.DiameterIdentity(h.originHost))
 	msg.NewAVP(avp.OriginRealm, avp.Mbit, 0, datatype.DiameterIdentity(h.originRealm))
@@ -52,10 +55,21 @@ func (h *Handlers) SendPPR(imsi, destHost, destRealm string, accessAllowed bool)
 	msg.NewAVP(avpNon3GPPUserData, avp.Mbit|avp.Vbit, Vendor3GPP,
 		userData)
 
+	h.trackSWxTransaction(msg, sid, imsi)
 	if _, err := msg.WriteTo(conn); err != nil {
+		h.forgetSWxTransaction(msg, sid)
 		h.log.Error("swx: PPR send failed",
-			zap.String("imsi", imsi), zap.String("dest_host", destHost), zap.Error(err))
+			zap.String("imsi", imsi),
+			zap.String("dest_host", destHost),
+			zap.Uint32("application_id", AppIDSWx),
+			zap.Uint32("command_code", cmdPPR),
+			zap.Error(err))
 		return
 	}
-	h.log.Info("swx: PPR sent", zap.String("imsi", imsi), zap.String("dest_host", destHost))
+	h.log.Info("swx: PPR sent",
+		zap.String("imsi", imsi),
+		zap.String("dest_host", destHost),
+		zap.Uint32("application_id", AppIDSWx),
+		zap.Uint32("command_code", cmdPPR),
+		zap.Bool("has_non_3gpp_user_data", userData != nil))
 }

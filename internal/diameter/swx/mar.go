@@ -24,7 +24,8 @@ func (h *Handlers) MAR(conn diam.Conn, msg *diam.Message) (*diam.Message, error)
 
 	imsi := string(mar.UserName)
 	scheme := requestedSIPAuthScheme(&mar)
-	anid := strings.TrimSpace(string(mar.ANID))
+	anid, hasSIPAuthenticationContext := requestedANID(&mar)
+	hasSIPAuthorization := mar.SIPAuthDataItem != nil && len(mar.SIPAuthDataItem.SIPAuthorization) > 0
 	numItems := uint32(mar.SIPNumberAuthItems)
 	if numItems == 0 {
 		numItems = 1
@@ -37,6 +38,15 @@ func (h *Handlers) MAR(conn diam.Conn, msg *diam.Message) (*diam.Message, error)
 		zap.Int32("an_trusted", int32(mar.ANTrusted)),
 		zap.String("anid", anid),
 		zap.Uint32("auth_items", numItems),
+	}
+	h.log.Debug("swx: MAR SIP-Auth-Data-Item decoded",
+		zap.String("scheme", scheme),
+		zap.Bool("has_sip_authorization", hasSIPAuthorization),
+		zap.Bool("has_sip_authentication_context", hasSIPAuthenticationContext),
+		zap.String("anid", anid),
+	)
+	if mar.SIPAuthDataItem != nil && !hasSIPAuthenticationContext {
+		h.log.Debug("swx: MAR missing SIP-Authentication-Context inside SIP-Auth-Data-Item", logFields...)
 	}
 	h.log.Debug("swx: MAR received", logFields...)
 
@@ -125,4 +135,14 @@ func requestedSIPAuthScheme(mar *MAR) string {
 	}
 	scheme := strings.TrimSpace(string(mar.SIPAuthDataItem.SIPAuthenticationScheme))
 	return strings.ReplaceAll(scheme, "′", "'")
+}
+
+func requestedANID(mar *MAR) (string, bool) {
+	if mar.SIPAuthDataItem != nil {
+		anid := strings.TrimSpace(string(mar.SIPAuthDataItem.SIPAuthenticationContext))
+		if anid != "" {
+			return anid, true
+		}
+	}
+	return strings.TrimSpace(string(mar.ANID)), false
 }

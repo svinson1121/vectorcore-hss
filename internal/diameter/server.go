@@ -219,6 +219,14 @@ func NewServer(cfg *config.Config, store repository.Repository, log *zap.Logger)
 		}
 		return cxH.MAR(conn, msg)
 	}))
+	machine.HandleIdx(diam.CommandIndex{AppID: swx.AppIDSWx, Code: 304, Request: true}, diam.HandlerFunc(wrap("SWx-RTR", swxH.UnsupportedRequest)))
+	machine.HandleIdx(diam.CommandIndex{AppID: swx.AppIDSWx, Code: 304, Request: false}, diam.HandlerFunc(func(conn diam.Conn, msg *diam.Message) {
+		swxH.RTA(conn, msg)
+	}))
+	machine.HandleIdx(diam.CommandIndex{AppID: swx.AppIDSWx, Code: 305, Request: true}, diam.HandlerFunc(wrap("SWx-PPR", swxH.UnsupportedRequest)))
+	machine.HandleIdx(diam.CommandIndex{AppID: swx.AppIDSWx, Code: 305, Request: false}, diam.HandlerFunc(func(conn diam.Conn, msg *diam.Message) {
+		swxH.PPA(conn, msg)
+	}))
 	machine.HandleFunc("UDR", wrap("UDR", shH.UDR))
 	machine.HandleFunc("PNA", func(conn diam.Conn, msg *diam.Message) {
 		shH.PNA(conn, msg)
