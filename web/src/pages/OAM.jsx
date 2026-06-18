@@ -370,8 +370,13 @@ export default function OAM() {
     }
     setRestoreRunning(true)
     try {
-      const fd = new FormData(); fd.append('file', file)
-      const res = await fetch('/api/v1/oam/restore', { method: 'POST', body: fd })
+      const backup = await file.text()
+      JSON.parse(backup)
+      const res = await fetch('/api/v1/oam/restore', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: backup,
+      })
       if (!res.ok) { const t = await res.text(); throw new Error(t) }
       const result = await res.json()
       toast.success('Restore', result?.message || 'Database restored successfully')
@@ -590,7 +595,7 @@ export default function OAM() {
           <button className="btn btn-ghost" onClick={doBackup} disabled={backupRunning}>
             {backupRunning ? <Spinner size="sm" /> : <Download size={14} />} Backup Database
           </button>
-          <input ref={restoreInputRef} type="file" accept=".zip,.sql,.db,.sqlite,.json" style={{ display: 'none' }} onChange={onRestoreFileChange} />
+          <input ref={restoreInputRef} type="file" accept=".json,application/json" style={{ display: 'none' }} onChange={onRestoreFileChange} />
           <button className="btn btn-ghost" onClick={() => restoreInputRef.current && restoreInputRef.current.click()} disabled={restoreRunning}>
             {restoreRunning ? <Spinner size="sm" /> : <Upload size={14} />} Restore Database
           </button>
