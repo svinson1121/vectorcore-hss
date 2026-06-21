@@ -155,11 +155,15 @@ func parseIDResp(payload []byte) string {
 		tagLen := int(payload[i])
 		tag := payload[i+1]
 		i += 2
-		if i+tagLen-1 > len(payload) {
+		if tagLen < 1 {
 			break
 		}
-		val := payload[i : i+tagLen-1]
-		i += tagLen - 1
+		valueLen := tagLen - 1
+		if valueLen > len(payload)-i {
+			break
+		}
+		val := payload[i : i+valueLen]
+		i += valueLen
 		if tag == ipaTagUnitName {
 			return string(val)
 		}

@@ -104,7 +104,7 @@ func Decode(b []byte) (*Msg, error) {
 	i := 1
 	for i < len(b) {
 		if i+1 >= len(b) {
-			break
+			return nil, ErrShortMessage
 		}
 		tag := b[i]
 		l := int(b[i+1])

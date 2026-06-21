@@ -31,7 +31,11 @@ func ParseSUPI(supi string) (string, error) {
 // keys may be nil, in which case only null-scheme (0) is accepted.
 func ParseSUPIWithKeys(supi string, keys *HNetKeyStore) (string, error) {
 	if strings.HasPrefix(supi, "imsi-") {
-		return strings.TrimPrefix(supi, "imsi-"), nil
+		imsi := strings.TrimPrefix(supi, "imsi-")
+		if err := validateIMSI(imsi); err != nil {
+			return "", err
+		}
+		return imsi, nil
 	}
 	if strings.HasPrefix(supi, "suci-") {
 		return parseSUCI(supi, keys)
@@ -61,7 +65,11 @@ func parseSUCI(suci string, keys *HNetKeyStore) (string, error) {
 
 	if schemeID == 0 {
 		// Null scheme — scheme output is the plaintext MSIN.
-		return mcc + mnc + schemeOutputRaw, nil
+		imsi := mcc + mnc + schemeOutputRaw
+		if err := validateIMSI(imsi); err != nil {
+			return "", err
+		}
+		return imsi, nil
 	}
 
 	// Encrypted scheme — need key store.
@@ -76,5 +84,21 @@ func parseSUCI(suci string, keys *HNetKeyStore) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("udm: SUCI decryption failed: %w", err)
 	}
-	return mcc + mnc + msin, nil
+	imsi := mcc + mnc + msin
+	if err := validateIMSI(imsi); err != nil {
+		return "", err
+	}
+	return imsi, nil
+}
+
+func validateIMSI(imsi string) error {
+	if len(imsi) < 5 || len(imsi) > 15 {
+		return fmt.Errorf("udm: IMSI must contain 5 to 15 digits")
+	}
+	for _, c := range imsi {
+		if c < '0' || c > '9' {
+			return fmt.Errorf("udm: IMSI contains non-decimal characters")
+		}
+	}
+	return nil
 }
