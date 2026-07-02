@@ -136,25 +136,7 @@ func (h *Handlers) AAR(conn diam.Conn, msg *diam.Message) (*diam.Message, error)
 			var flowAVPs []*diam.AVP
 			for _, sc := range r.subComponents {
 				for _, fd := range sc {
-					effectiveFD, rewritten := h.applyTFTHandling(fd)
-					if rewritten {
-						h.log.Debug("rx: TFT rewrite applied", zap.String("original", fd), zap.String("effective", effectiveFD))
-					}
-					fd = effectiveFD
-
-					dir := flowDirectionBidirectional
-					lower := strings.ToLower(fd)
-					if strings.HasPrefix(lower, "permit out") {
-						dir = flowDirectionDownlink
-					} else if strings.HasPrefix(lower, "permit in") {
-						dir = flowDirectionUplink
-					}
-					flowAVPs = append(flowAVPs, diam.NewAVP(avpGxFlowInformation, avp.Vbit, Vendor3GPP,
-						&diam.GroupedAVP{AVP: []*diam.AVP{
-							diam.NewAVP(avpFlowDescription, avp.Mbit|avp.Vbit, Vendor3GPP, datatype.IPFilterRule(fd)),
-							diam.NewAVP(avpGxFlowDirection, avp.Vbit, Vendor3GPP, datatype.Enumerated(dir)),
-						}},
-					))
+					flowAVPs = append(flowAVPs, h.buildRxFlowInformation(fd))
 				}
 			}
 
@@ -217,6 +199,34 @@ func (h *Handlers) AAR(conn diam.Conn, msg *diam.Message) (*diam.Message, error)
 
 	h.log.Debug("rx: AAR success", zap.String("subscriber", identity), zap.Int("rules", len(ruleNames)))
 	return buildRxAnswer(msg, aar.SessionID, h.originHost, h.originRealm), nil
+}
+
+func (h *Handlers) buildRxFlowInformation(fd string) *diam.AVP {
+	dir := detectFlowDirectionFromRxFlowDescription(fd)
+
+	effectiveFD, rewritten := h.applyTFTHandling(fd)
+	if rewritten {
+		h.log.Debug("rx: TFT rewrite applied", zap.String("original", fd), zap.String("effective", effectiveFD))
+	}
+
+	return diam.NewAVP(avpGxFlowInformation, avp.Vbit, Vendor3GPP,
+		&diam.GroupedAVP{AVP: []*diam.AVP{
+			diam.NewAVP(avpFlowDescription, avp.Mbit|avp.Vbit, Vendor3GPP, datatype.IPFilterRule(effectiveFD)),
+			diam.NewAVP(avpGxFlowDirection, avp.Vbit, Vendor3GPP, datatype.Enumerated(dir)),
+		}},
+	)
+}
+
+func detectFlowDirectionFromRxFlowDescription(fd string) uint32 {
+	lower := strings.ToLower(strings.TrimSpace(fd))
+	switch {
+	case strings.HasPrefix(lower, "permit out"):
+		return flowDirectionDownlink
+	case strings.HasPrefix(lower, "permit in"):
+		return flowDirectionUplink
+	default:
+		return flowDirectionBidirectional
+	}
 }
 
 // STR handles Session-Termination-Request from the P-CSCF (command 275).
@@ -313,16 +323,18 @@ func (h *Handlers) sendGxRARRemove(pgwPeer, pgwRealm, gxSessionID string, ruleNa
 // mediaTypeQoSDefaults maps an Rx Media-Type to QoS parameters for the Gx RAR.
 //
 // Returns:
-//   qci        — Gx QCI value (0 = no dedicated bearer for this type)
-//   gbr        — true if a GBR bearer is required (QCI 1–4)
-//   defaultBW  — default MBR/GBR in bps, applied when the P-CSCF omits bandwidth AVPs
-//   arpPriority — ARP Priority-Level per 3GPP TS 23.203 Table 6.1.7
-//   precedence  — charging rule precedence (lower = higher priority)
+//
+//	qci        — Gx QCI value (0 = no dedicated bearer for this type)
+//	gbr        — true if a GBR bearer is required (QCI 1–4)
+//	defaultBW  — default MBR/GBR in bps, applied when the P-CSCF omits bandwidth AVPs
+//	arpPriority — ARP Priority-Level per 3GPP TS 23.203 Table 6.1.7
+//	precedence  — charging rule precedence (lower = higher priority)
 //
 // ARP values are per 3GPP TS 23.203 §6.1.7 QCI characteristics:
-//   QCI 1 (voice): priority 2 → use 14 per common operator practice
-//   QCI 2 (video): priority 4 → use 11 per common operator practice
-//   QCI 5 (IMS signalling): priority 1 → use 1
+//
+//	QCI 1 (voice): priority 2 → use 14 per common operator practice
+//	QCI 2 (video): priority 4 → use 11 per common operator practice
+//	QCI 5 (IMS signalling): priority 1 → use 1
 //
 // Pre-Emption-Capability is always DISABLED and Pre-Emption-Vulnerability is
 // always ENABLED for these dedicated IMS bearers (set at call site).

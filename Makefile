@@ -1,10 +1,11 @@
-.PHONY: build clean deps install uninstall ui dev-ui
+.PHONY: build clean deps fuzz install uninstall ui dev-ui
 
 BINARY=hss
-APP_VERSION=0.4.0B
-API_VERSION=1.4.0
+APP_VERSION=1.0.0
+API_VERSION=1.4.1
 VERSION_PKG=github.com/svinson1121/vectorcore-hss/internal/version
 GO_LDFLAGS=-X $(VERSION_PKG).AppVersion=$(APP_VERSION) -X $(VERSION_PKG).APIVersion=$(API_VERSION)
+FUZZ_TIME?=30s
 PREFIX=/opt/vectorcore
 BINDIR=$(PREFIX)/bin
 ETCDIR=$(PREFIX)/etc
@@ -23,6 +24,12 @@ dev-ui: ## Start Vite dev server (proxies API to localhost:8080)
 
 deps:
 	go mod tidy
+
+fuzz:
+	go test ./internal/gsup -run '^$$' -fuzz '^FuzzDecode$$' -fuzztime=$(FUZZ_TIME)
+	go test ./internal/gsup -run '^$$' -fuzz '^FuzzParseIDResp$$' -fuzztime=$(FUZZ_TIME)
+	go test ./internal/gsup -run '^$$' -fuzz '^FuzzIMSIRoundTrip$$' -fuzztime=$(FUZZ_TIME)
+	go test ./internal/udm -run '^$$' -fuzz '^FuzzParseSUPI$$' -fuzztime=$(FUZZ_TIME)
 
 install: build
 	install -d $(BINDIR)
