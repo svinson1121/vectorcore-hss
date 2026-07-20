@@ -95,6 +95,10 @@ type APNConfiguration struct {
 	EPSSubscribedQoSProfile     EPSSubscribedQoSProfile
 	AMBR                        AMBR
 	TGPPChargingCharacteristics string
+	// ServedPartyIPAddress holds an optional static UE IPv4/IPv6 address for
+	// this APN (3GPP TS 29.272 §7.3.5, AVP 848). Empty means dynamic
+	// allocation; the AVP is then omitted.
+	ServedPartyIPAddress string
 }
 
 type APNConfigurationProfile struct {
