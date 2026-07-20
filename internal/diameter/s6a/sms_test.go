@@ -21,6 +21,8 @@ import (
 type s6aTestStore struct {
 	sub           *models.Subscriber
 	apn           *models.APN
+	apns          map[int]*models.APN
+	routing       map[int]*models.SubscriberRouting
 	lastMMEUpdate *repository.ServingMMEUpdate
 }
 
@@ -73,6 +75,11 @@ func (s *s6aTestStore) UpdateServingAMF(_ context.Context, _ string, _ *reposito
 }
 
 func (s *s6aTestStore) GetAPNByID(_ context.Context, apnID int) (*models.APN, error) {
+	if s.apns != nil {
+		if a, ok := s.apns[apnID]; ok {
+			return a, nil
+		}
+	}
 	if s.apn != nil && s.apn.APNID == apnID {
 		return s.apn, nil
 	}
@@ -171,7 +178,12 @@ func (s *s6aTestStore) GetServingAPNByUEIP(_ context.Context, _ string) (*models
 	return nil, repository.ErrNotFound
 }
 
-func (s *s6aTestStore) GetSubscriberRoutingBySubscriberAndAPN(_ context.Context, _, _ int) (*models.SubscriberRouting, error) {
+func (s *s6aTestStore) GetSubscriberRoutingBySubscriberAndAPN(_ context.Context, _, apnID int) (*models.SubscriberRouting, error) {
+	if s.routing != nil {
+		if r, ok := s.routing[apnID]; ok {
+			return r, nil
+		}
+	}
 	return nil, repository.ErrNotFound
 }
 

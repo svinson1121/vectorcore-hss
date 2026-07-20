@@ -221,7 +221,7 @@ func (h *Handlers) buildSubscriptionData(ctx context.Context, sub *models.Subscr
 		if err != nil {
 			continue
 		}
-		profile.APNConfiguration = append(profile.APNConfiguration, APNConfiguration{
+		apnCfg := APNConfiguration{
 			ContextIdentifier: uint32(i + 1),
 			ServiceSelection:  a.APN,
 			PDNType:           int32(a.IPVersion),
@@ -238,7 +238,18 @@ func (h *Handlers) buildSubscriptionData(ctx context.Context, sub *models.Subscr
 				MaxRequestedBandwidthUL: uint32(a.APNAMBRUp),
 			},
 			TGPPChargingCharacteristics: a.ChargingCharacteristics,
-		})
+		}
+
+		// Static per-subscriber/APN IP assignment (subscriber_routing table).
+		// When present it is emitted as Served-Party-IP-Address inside this
+		// APN-Configuration; absence leaves the APN on dynamic allocation.
+		if r, err := h.store.GetSubscriberRoutingBySubscriberAndAPN(ctx, sub.SubscriberID, apnID); err == nil && r != nil && r.IPAddress != nil {
+			if ip := strings.TrimSpace(*r.IPAddress); ip != "" {
+				apnCfg.ServedPartyIPAddress = ip
+			}
+		}
+
+		profile.APNConfiguration = append(profile.APNConfiguration, apnCfg)
 	}
 	sd.APNConfigurationProfile = profile
 	return sd, nil

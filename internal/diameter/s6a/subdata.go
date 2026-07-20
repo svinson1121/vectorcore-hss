@@ -1,6 +1,8 @@
 package s6a
 
 import (
+	"net"
+
 	"github.com/fiorix/go-diameter/v4/diam"
 	"github.com/fiorix/go-diameter/v4/diam/avp"
 	"github.com/fiorix/go-diameter/v4/diam/datatype"
@@ -38,6 +40,15 @@ func appendSubscriptionDataAVPs(msg *diam.Message, sd *SubscriptionData) {
 	for _, a := range sd.APNConfigurationProfile.APNConfiguration {
 		apnAVPs := []*diam.AVP{
 			diam.NewAVP(avp.ContextIdentifier, avp.Mbit|avp.Vbit, Vendor3GPP, datatype.Unsigned32(a.ContextIdentifier)),
+		}
+		// Served-Party-IP-Address (AVP 848) carries a static UE address for this
+		// APN. Only emit it when a valid static IP is configured; otherwise the
+		// MME/PGW allocates dynamically. Encoded inside this APN-Configuration so
+		// addresses never leak between APNs.
+		if ip := net.ParseIP(a.ServedPartyIPAddress); ip != nil {
+			apnAVPs = append(apnAVPs, diam.NewAVP(avp.ServedPartyIPAddress, avp.Mbit|avp.Vbit, Vendor3GPP, datatype.Address(ip)))
+		}
+		apnAVPs = append(apnAVPs,
 			diam.NewAVP(avp.PDNType, avp.Mbit|avp.Vbit, Vendor3GPP, datatype.Enumerated(a.PDNType)),
 			diam.NewAVP(avp.ServiceSelection, avp.Mbit, 0, datatype.UTF8String(a.ServiceSelection)),
 			diam.NewAVP(avp.EPSSubscribedQoSProfile, avp.Mbit|avp.Vbit, Vendor3GPP, &diam.GroupedAVP{AVP: []*diam.AVP{
@@ -52,7 +63,7 @@ func appendSubscriptionDataAVPs(msg *diam.Message, sd *SubscriptionData) {
 				diam.NewAVP(avp.MaxRequestedBandwidthDL, avp.Mbit|avp.Vbit, Vendor3GPP, datatype.Unsigned32(a.AMBR.MaxRequestedBandwidthDL)),
 				diam.NewAVP(avp.MaxRequestedBandwidthUL, avp.Mbit|avp.Vbit, Vendor3GPP, datatype.Unsigned32(a.AMBR.MaxRequestedBandwidthUL)),
 			}}),
-		}
+		)
 		if a.TGPPChargingCharacteristics != "" {
 			apnAVPs = append(apnAVPs, diam.NewAVP(avp.TGPPChargingCharacteristics, avp.Vbit, Vendor3GPP, datatype.UTF8String(a.TGPPChargingCharacteristics)))
 		}
