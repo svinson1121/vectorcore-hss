@@ -7,6 +7,10 @@ hss:
   DiameterDSCP: 46        # Diameter DSCP marking, 0-63; 0 leaves packets best-effort/default
   DWRInterval: 30
   CancelLocationRequest_Enabled: true
+  # SLh authorizes the local realm automatically. Add external GMLC Diameter
+  # Origin-Realms here; an empty list does not authorize arbitrary peers.
+  SLhAuthorizedRealms:
+    - epc.mnc435.mcc311.3gppnetwork.org
   MCC: "311"
   MNC: "435"
   scscf_pool:

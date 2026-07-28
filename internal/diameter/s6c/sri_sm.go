@@ -10,6 +10,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/svinson1121/vectorcore-hss/internal/diameter/avputil"
+	"github.com/svinson1121/vectorcore-hss/internal/diameter/tbcd"
 	"github.com/svinson1121/vectorcore-hss/internal/models"
 	"github.com/svinson1121/vectorcore-hss/internal/repository"
 )
@@ -92,50 +93,18 @@ func (h *Handlers) SRISR(conn diam.Conn, msg *diam.Message) (*diam.Message, erro
 // encodeMSISDNBytes encodes an MSISDN string as TBCD bytes.
 // Digits are packed two per byte, nibbles swapped; odd length is padded with 0xF.
 func encodeMSISDNBytes(msisdn string) []byte {
-	if len(msisdn)%2 != 0 {
-		msisdn += "F"
+	b, err := tbcd.EncodeMSISDN(msisdn)
+	if err != nil {
+		return nil
 	}
-	result := make([]byte, len(msisdn)/2)
-	for i := 0; i < len(msisdn); i += 2 {
-		lo := msisdnDigitToNibble(msisdn[i])
-		hi := msisdnDigitToNibble(msisdn[i+1])
-		result[i/2] = (hi << 4) | lo
-	}
-	return result
+	return b
 }
 
 // decodeMSISDN decodes a TBCD-encoded MSISDN, stripping trailing 0xF filler nibbles.
 func decodeMSISDN(b datatype.OctetString) string {
-	if len(b) < 1 {
+	number, err := tbcd.DecodeMSISDN([]byte(b))
+	if err != nil {
 		return ""
 	}
-	bcd := []byte(b)
-	digits := make([]byte, 0, len(bcd)*2)
-	for _, octet := range bcd {
-		lo := octet & 0x0F
-		hi := (octet >> 4) & 0x0F
-		digits = append(digits, msisdnNibbleToDigit(lo), msisdnNibbleToDigit(hi))
-	}
-	for len(digits) > 0 && digits[len(digits)-1] == 'F' {
-		digits = digits[:len(digits)-1]
-	}
-	return string(digits)
-}
-
-func msisdnDigitToNibble(c byte) byte {
-	switch {
-	case c >= '0' && c <= '9':
-		return c - '0'
-	case c == 'F' || c == 'f':
-		return 0xF
-	default:
-		return 0
-	}
-}
-
-func msisdnNibbleToDigit(n byte) byte {
-	if n <= 9 {
-		return '0' + n
-	}
-	return 'F'
+	return number
 }

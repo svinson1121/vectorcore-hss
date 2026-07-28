@@ -98,11 +98,26 @@ The ULR handler on S6a detects SMS-in-MME capability from ULR-Flags and the MME-
 | RTR | HSS -> AAA | Registration-Termination - de-registers a non-3GPP session. |
 | PPR | HSS -> AAA | Push-Profile - pushes an updated non-3GPP access profile to the AAA server. |
 
-### SLh - E-CSCF <-> HSS for Emergency (3GPP TS 29.173)
+### SLh - GMLC <-> HSS for Location Services (3GPP TS 29.173)
 
 | Command | Direction | Description |
 |---------|-----------|-------------|
-| LRR / LRA | E-CSCF -> HSS | LCS-Routing-Info - returns routing information for emergency location services. |
+| RIR / RIA | GMLC -> HSS | LCS-Routing-Info-Request/Answer (application ID `16777291`, command code `8388622`) returns serving-node routing information. |
+
+The GMLC uses the returned MME identity to route its SLg PLR to the MME. The
+HSS learns LTE MME name and realm from S6a ULR registration state. An attached
+subscriber returns `MME-Name` and `MME-Realm`; an existing subscriber without
+a usable serving node returns `DIAMETER_ERROR_ABSENT_USER` (4201), and an
+unknown subscriber returns `DIAMETER_ERROR_USER_UNKNOWN` (5001).
+
+SLh authorizes the requesting GMLC by `Origin-Realm`, compared case
+insensitively with a trailing dot normalized. The HSS's own `OriginRealm` is
+always authorized. `hss.SLhAuthorizedRealms` adds specific external GMLC
+realms; an empty list authorizes no external realm. Unauthorized requests
+return `DIAMETER_ERROR_UNAUTHORIZED_REQUESTING_NETWORK` (5490). SLh normally
+uses SCTP; set `hss.EnableSCTP: true` (and provide kernel SCTP support) to
+enable the shared SCTP listener. TCP remains available for the other shared
+Diameter interfaces and lab interoperability.
 
 ### Zh - BSF <-> HSS for GBA (3GPP TS 29.109)
 
@@ -375,7 +390,7 @@ curl -s -X POST $BASE/ims_subscriber \
 ## Architecture
 
 ```
-MME / CSCF / PGW / AAA / AS / BSF / E-CSCF (Diameter peers)
+MME / CSCF / PGW / AAA / AS / BSF / GMLC (Diameter peers)
   |
   +-- internal/diameter/server.go        StateMachine, handler wiring, TCP/SCTP listener
         |
@@ -387,7 +402,7 @@ MME / CSCF / PGW / AAA / AS / BSF / E-CSCF (Diameter peers)
         +-- internal/diameter/gx/        CCR; HSS-originated RAR
         +-- internal/diameter/rx/        AAR, STR; triggers Gx RAR to PGW for VoLTE bearers
         +-- internal/diameter/swx/       MAR, SAR; HSS-originated RTR, PPR
-        +-- internal/diameter/slh/       LRR (emergency location routing)
+        +-- internal/diameter/slh/       RIR/RIA (GMLC location routing)
         +-- internal/diameter/zh/        MAR (GBA bootstrapping)
 
 OsmoMSC / OsmoSGSN (GSUP)

@@ -156,8 +156,11 @@ type HSSConfig struct {
 	DWRInterval                  int      `yaml:"DWRInterval"`
 	CancelLocationRequestEnabled bool     `yaml:"CancelLocationRequest_Enabled"`
 	AllowedPeers                 []string `yaml:"AllowedPeers"`
-	MCC                          string   `yaml:"MCC"` // e.g. "311"
-	MNC                          string   `yaml:"MNC"` // e.g. "435"
+	// SLhAuthorizedRealms permits additional GMLC Diameter Origin-Realms.
+	// OriginRealm is always permitted; an empty list permits no external realm.
+	SLhAuthorizedRealms []string `yaml:"SLhAuthorizedRealms"`
+	MCC                 string   `yaml:"MCC"` // e.g. "311"
+	MNC                 string   `yaml:"MNC"` // e.g. "435"
 	// SCSCFPool is the list of S-CSCF URIs offered to the I-CSCF on first
 	// registration (when the subscriber has no S-CSCF assigned yet).
 	// Mirrors PyHSS scscf_pool. At least one entry is recommended.

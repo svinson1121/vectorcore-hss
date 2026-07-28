@@ -42,3 +42,17 @@ func ConstructFailureAnswer(req *diam.Message, sessionID datatype.UTF8String, or
 	ans.NewAVP(avp.OriginStateID, avp.Mbit, 0, datatype.Unsigned32(uint32(time.Now().Unix())))
 	return ans
 }
+
+// ConstructBaseFailureAnswer constructs an RFC 6733 Result-Code failure.
+// Keep this separate from ConstructFailureAnswer: most existing 3GPP
+// applications deliberately use Experimental-Result for their errors.
+func ConstructBaseFailureAnswer(req *diam.Message, sessionID datatype.UTF8String, originHost, originRealm string, resultCode uint32) *diam.Message {
+	ans := diam.NewMessage(req.Header.CommandCode, req.Header.CommandFlags&^diam.RequestFlag, req.Header.ApplicationID, req.Header.HopByHopID, req.Header.EndToEndID, req.Dictionary())
+	ans.InsertAVP(diam.NewAVP(avp.SessionID, avp.Mbit, 0, sessionID))
+	ans.NewAVP(avp.ResultCode, avp.Mbit, 0, datatype.Unsigned32(resultCode))
+	ans.NewAVP(avp.AuthSessionState, avp.Mbit, 0, datatype.Enumerated(1))
+	ans.NewAVP(avp.OriginHost, avp.Mbit, 0, datatype.DiameterIdentity(originHost))
+	ans.NewAVP(avp.OriginRealm, avp.Mbit, 0, datatype.DiameterIdentity(originRealm))
+	ans.NewAVP(avp.OriginStateID, avp.Mbit, 0, datatype.Unsigned32(uint32(time.Now().Unix())))
+	return ans
+}

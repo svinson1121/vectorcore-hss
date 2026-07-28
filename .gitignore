@@ -1,0 +1,22 @@
+# Compiled binaries
+bin/
+
+# Go build/test artifacts
+*.test
+
+# HSS/operator data exports — may contain SIM keys (Ki/OPc)
+hss-backup-*.json
+
+
+# Editor and OS
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+log/

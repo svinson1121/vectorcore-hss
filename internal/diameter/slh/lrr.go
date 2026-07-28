@@ -2,6 +2,8 @@ package slh
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/fiorix/go-diameter/v4/diam"
@@ -10,124 +12,120 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/svinson1121/vectorcore-hss/internal/diameter/avputil"
+	"github.com/svinson1121/vectorcore-hss/internal/diameter/tbcd"
 	"github.com/svinson1121/vectorcore-hss/internal/models"
 	"github.com/svinson1121/vectorcore-hss/internal/repository"
 )
 
+// LRR is the go-diameter dispatch alias for the SLh RIR command.
 func (h *Handlers) LRR(conn diam.Conn, msg *diam.Message) (*diam.Message, error) {
-	var req LRR
+	var req RIR
 	if err := msg.Unmarshal(&req); err != nil {
-		h.log.Error("slh: LRR unmarshal failed", zap.Error(err))
-		return avputil.ConstructFailureAnswer(msg, "", h.originHost, h.originRealm, diam.UnableToComply), err
+		h.log.Error("slh: RIR unmarshal failed", zap.Error(err))
+		return h.baseFailure(msg, "", diam.UnableToComply), err
+	}
+	if !h.authorized(string(req.OriginRealm)) {
+		h.log.Warn("slh: unauthorized GMLC realm", zap.String("origin_realm", string(req.OriginRealm)))
+		return h.experimentalFailure(msg, req.SessionID, DiameterErrorUnauthorizedRequestingNetwork), nil
+	}
+
+	imsi := strings.TrimSpace(string(req.UserName))
+	var msisdn string
+	var err error
+	if len(req.MSISDN) != 0 {
+		msisdn, err = tbcd.DecodeMSISDN([]byte(req.MSISDN))
+		if err != nil {
+			return h.baseFailure(msg, req.SessionID, diam.UnableToComply), nil
+		}
+	}
+	if imsi == "" && msisdn == "" {
+		return h.baseFailure(msg, req.SessionID, diam.UnableToComply), nil
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-
-	var sub *models.Subscriber
-	var err error
-	byIMSI := string(req.UserName) != ""
-
-	if byIMSI {
-		imsi := string(req.UserName)
-		sub, err = h.store.GetSubscriberByIMSI(ctx, imsi)
-	} else {
-		msisdn := decodeMSISDN(req.MSISDN)
-		sub, err = h.store.GetSubscriberByMSISDN(ctx, msisdn)
+	sub, lookupErr := h.lookupSubscriber(ctx, imsi, msisdn)
+	if lookupErr != nil {
+		switch lookupErr {
+		case repository.ErrNotFound:
+			return h.experimentalFailure(msg, req.SessionID, avputil.DiameterErrorUserUnknown), nil
+		case errContradictingIdentities:
+			return h.baseFailure(msg, req.SessionID, diam.ContradictingAVPs), nil
+		default:
+			h.log.Error("slh: RIR repository error", zap.Error(lookupErr))
+			return h.baseFailure(msg, req.SessionID, diam.UnableToComply), lookupErr
+		}
 	}
 
-	if err == repository.ErrNotFound {
-		h.log.Warn("slh: LRR unknown subscriber")
-		return avputil.ConstructFailureAnswer(msg, req.SessionID, h.originHost, h.originRealm, avputil.DiameterErrorUserUnknown), err
-	}
-	if err != nil {
-		h.log.Error("slh: LRR store error", zap.Error(err))
-		return avputil.ConstructFailureAnswer(msg, req.SessionID, h.originHost, h.originRealm, avputil.DiameterErrorUserUnknown), err
+	// The currently persisted SLh-capable registration state is LTE/S6a MME
+	// state. A realm without a non-empty MME name is not a usable serving node.
+	if sub.ServingMME == nil || strings.TrimSpace(*sub.ServingMME) == "" || sub.ServingMMERealm == nil || strings.TrimSpace(*sub.ServingMMERealm) == "" {
+		return h.experimentalFailure(msg, req.SessionID, DiameterErrorAbsentUser), nil
 	}
 
 	ans := avputil.ConstructSuccessAnswer(msg, req.SessionID, h.originHost, h.originRealm, AppIDSLh)
-
-	// If queried by IMSI and subscriber has an MSISDN, return it encoded as BCD.
-	if byIMSI && sub.MSISDN != nil {
-		ans.NewAVP(avpMSISDN, avp.Vbit, Vendor3GPP, datatype.OctetString(encodeMSISDNBytes(*sub.MSISDN)))
+	if imsi != "" {
+		// TS 29.173 requires the corresponding MSISDN in an IMSI RIR.  The
+		// TS 23.003 dummy MSISDN is used for subscriptions without one.
+		number := dummyMSISDN
+		if sub.MSISDN != nil && strings.TrimSpace(*sub.MSISDN) != "" {
+			number = *sub.MSISDN
+		}
+		b, encErr := tbcd.EncodeMSISDN(number)
+		if encErr != nil {
+			return h.baseFailure(msg, req.SessionID, diam.UnableToComply), encErr
+		}
+		ans.NewAVP(avpMSISDN, avp.Vbit, Vendor3GPP, datatype.OctetString(b))
 	}
-
-	// If queried by MSISDN, return the IMSI as User-Name.
-	if !byIMSI {
+	if msisdn != "" {
 		ans.NewAVP(avp.UserName, avp.Mbit, 0, datatype.UTF8String(sub.IMSI))
 	}
-
-	// Build Serving-Node grouped AVP.
-	var servingAVPs []*diam.AVP
-	if sub.ServingMME != nil {
-		servingAVPs = append(servingAVPs,
-			diam.NewAVP(avpMMEName, avp.Mbit|avp.Vbit, Vendor3GPP, datatype.DiameterIdentity(*sub.ServingMME)))
-	}
-	if sub.ServingMMERealm != nil {
-		servingAVPs = append(servingAVPs,
-			diam.NewAVP(avpMMERealm, avp.Vbit, Vendor3GPP, datatype.DiameterIdentity(*sub.ServingMMERealm)))
-	}
-	if sub.ServingSGSN != nil {
-		servingAVPs = append(servingAVPs,
-			diam.NewAVP(avpSGSNName, avp.Vbit, Vendor3GPP, datatype.DiameterIdentity(*sub.ServingSGSN)))
-	}
-
-	if len(servingAVPs) > 0 {
-		ans.NewAVP(avpServingNode, avp.Mbit|avp.Vbit, Vendor3GPP, &diam.GroupedAVP{AVP: servingAVPs})
-	}
-
-	h.log.Debug("slh: LRR success", zap.String("imsi", sub.IMSI))
+	ans.NewAVP(avpServingNode, avp.Mbit|avp.Vbit, Vendor3GPP, &diam.GroupedAVP{AVP: []*diam.AVP{
+		diam.NewAVP(avpMMEName, avp.Mbit|avp.Vbit, Vendor3GPP, datatype.DiameterIdentity(*sub.ServingMME)),
+		diam.NewAVP(avpMMERealm, avp.Vbit, Vendor3GPP, datatype.DiameterIdentity(*sub.ServingMMERealm)),
+	}})
+	h.log.Debug("slh: RIR success", zap.String("imsi", sub.IMSI))
 	return ans, nil
 }
 
-// encodeMSISDNBytes encodes an MSISDN string as TBCD bytes (pure digits, no TON/NPI prefix).
-// Digits are packed two per byte with nibbles swapped; an odd-length number is padded with 0xF.
-func encodeMSISDNBytes(msisdn string) []byte {
-	if len(msisdn)%2 != 0 {
-		msisdn += "F"
+const dummyMSISDN = "000000000000000"
+
+var errContradictingIdentities = fmt.Errorf("RIR identities identify different subscribers")
+
+func (h *Handlers) lookupSubscriber(ctx context.Context, imsi, msisdn string) (*models.Subscriber, error) {
+	if imsi == "" {
+		return h.store.GetSubscriberByMSISDN(ctx, msisdn)
 	}
-	result := make([]byte, len(msisdn)/2)
-	for i := 0; i < len(msisdn); i += 2 {
-		lo := digitToNibble(msisdn[i])
-		hi := digitToNibble(msisdn[i+1])
-		result[i/2] = (hi << 4) | lo
+	byIMSI, err := h.store.GetSubscriberByIMSI(ctx, imsi)
+	if err != nil || msisdn == "" {
+		return byIMSI, err
 	}
-	return result
+	byMSISDN, err := h.store.GetSubscriberByMSISDN(ctx, msisdn)
+	if err != nil {
+		return nil, err
+	}
+	if byIMSI.IMSI != byMSISDN.IMSI {
+		return nil, errContradictingIdentities
+	}
+	return byIMSI, nil
 }
 
-// decodeMSISDN decodes a TBCD-encoded MSISDN byte slice, stripping trailing 0xF filler nibbles.
-func decodeMSISDN(b datatype.OctetString) string {
-	if len(b) < 1 {
-		return ""
+func (h *Handlers) authorized(realm string) bool {
+	realm = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(realm)), ".")
+	if realm == strings.TrimSuffix(strings.ToLower(strings.TrimSpace(h.originRealm)), ".") {
+		return true
 	}
-	bcd := []byte(b)
-	digits := make([]byte, 0, len(bcd)*2)
-	for _, octet := range bcd {
-		lo := octet & 0x0F
-		hi := (octet >> 4) & 0x0F
-		digits = append(digits, nibbleToDigit(lo), nibbleToDigit(hi))
+	for _, allowed := range h.authorizedRealms {
+		if realm == strings.TrimSuffix(strings.ToLower(strings.TrimSpace(allowed)), ".") {
+			return true
+		}
 	}
-	// Strip trailing 'F' padding.
-	for len(digits) > 0 && digits[len(digits)-1] == 'F' {
-		digits = digits[:len(digits)-1]
-	}
-	return string(digits)
+	return false
 }
 
-func digitToNibble(c byte) byte {
-	switch {
-	case c >= '0' && c <= '9':
-		return c - '0'
-	case c == 'F' || c == 'f':
-		return 0xF
-	default:
-		return 0
-	}
+func (h *Handlers) baseFailure(msg *diam.Message, sessionID datatype.UTF8String, code uint32) *diam.Message {
+	return avputil.ConstructBaseFailureAnswer(msg, sessionID, h.originHost, h.originRealm, code)
 }
-
-func nibbleToDigit(n byte) byte {
-	if n <= 9 {
-		return '0' + n
-	}
-	return 'F'
+func (h *Handlers) experimentalFailure(msg *diam.Message, sessionID datatype.UTF8String, code uint32) *diam.Message {
+	return avputil.ConstructFailureAnswer(msg, sessionID, h.originHost, h.originRealm, code)
 }
