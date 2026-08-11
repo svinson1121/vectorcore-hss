@@ -48,6 +48,26 @@ const RAT_BITS = [
   { value: 512, label: 'Non-3GPP 5GS' },
 ]
 
+// Subscriber-Status AVP values (3GPP TS 29.272 §7.3.29).
+const SUBSCRIBER_STATUS_OPTIONS = [
+  { value: 0, label: 'Service Granted' },
+  { value: 1, label: 'Operator Determined Barring' },
+]
+
+// Operator-Determined-Barring AVP bit positions (3GPP TS 29.272 §7.3.30).
+// Independent of RAT_BITS / Access-Restriction-Data above.
+const ODB_BITS = [
+  { value: 1,   label: 'All packet-oriented services barred' },
+  { value: 2,   label: 'Roamer access to HPLMN AP barred' },
+  { value: 4,   label: 'Roamer access to VPLMN AP barred' },
+  { value: 8,   label: 'All outgoing calls barred' },
+  { value: 16,  label: 'All outgoing international calls barred' },
+  { value: 32,  label: 'Outgoing international except home-PLMN-country calls barred' },
+  { value: 64,  label: 'All outgoing inter-zonal calls barred' },
+  { value: 128, label: 'Outgoing inter-zonal except home-PLMN-country calls barred' },
+  { value: 256, label: 'Outgoing international except home-PLMN-country AND inter-zonal calls barred' },
+]
+
 const CHIP_STYLE = {
   display: 'inline-flex',
   alignItems: 'center',
@@ -195,6 +215,8 @@ function SubscriberModal({ sub, onClose, onSaved, aucList, apnList }) {
     nam: sub.nam != null ? sub.nam : 0,
     subscribed_rau_tau_timer: sub.subscribed_rau_tau_timer != null ? sub.subscribed_rau_tau_timer : 600,
     access_restriction_data: sub.access_restriction_data != null ? Number(sub.access_restriction_data) : 0,
+    subscriber_status: sub.subscriber_status != null ? Number(sub.subscriber_status) : 0,
+    operator_determined_barring: sub.operator_determined_barring != null ? Number(sub.operator_determined_barring) : 0,
     nssai: sub.nssai || '',
   } : {
     imsi: '',
@@ -207,6 +229,8 @@ function SubscriberModal({ sub, onClose, onSaved, aucList, apnList }) {
     nam: 0,
     subscribed_rau_tau_timer: 600,
     access_restriction_data: 0,
+    subscriber_status: 0,
+    operator_determined_barring: 0,
     nssai: '',
   })
 
@@ -288,6 +312,20 @@ function SubscriberModal({ sub, onClose, onSaved, aucList, apnList }) {
     set('access_restriction_data', newVal)
   }
 
+  function toggleOdb(bitValue) {
+    const current = Number(form.operator_determined_barring) || 0
+    const newVal = (current & bitValue) ? (current & ~bitValue) : (current | bitValue)
+    set('operator_determined_barring', newVal)
+  }
+
+  function handleSubscriberStatusChange(e) {
+    const val = Number(e.target.value)
+    set('subscriber_status', val)
+    // Service Granted has no barring — clear any previously selected ODB flags
+    // so a stale mask can never be sent back to the server.
+    if (val === 0) set('operator_determined_barring', 0)
+  }
+
   async function handleSubmit(e) {
     e.preventDefault()
     if (!form.auc_id) {
@@ -311,6 +349,8 @@ function SubscriberModal({ sub, onClose, onSaved, aucList, apnList }) {
         nam: Number(form.nam),
         subscribed_rau_tau_timer: Number(form.subscribed_rau_tau_timer),
         access_restriction_data: Number(form.access_restriction_data) || undefined,
+        subscriber_status: Number(form.subscriber_status) || 0,
+        operator_determined_barring: form.subscriber_status === 1 ? (Number(form.operator_determined_barring) || undefined) : undefined,
         nssai: form.nssai || undefined,
       }
       if (isEdit) {
@@ -330,6 +370,8 @@ function SubscriberModal({ sub, onClose, onSaved, aucList, apnList }) {
   }
 
   const ard = Number(form.access_restriction_data) || 0
+  const odb = Number(form.operator_determined_barring) || 0
+  const odbActive = Number(form.subscriber_status) === 1
   const selectableApns = availableApns.filter(a => !selectedApnIds.includes(String(a.apn_id)))
 
   return (
@@ -432,6 +474,44 @@ function SubscriberModal({ sub, onClose, onSaved, aucList, apnList }) {
               <label className="form-label">Subscribed RAU/TAU Timer (s)</label>
               <input className="input" type="number" min="0" value={form.subscribed_rau_tau_timer} onChange={e => set('subscribed_rau_tau_timer', e.target.value)} />
             </div>
+          </div>
+
+          <div style={SECTION_STYLE}>Subscriber Status / Operator Barring</div>
+          <div className="form-row">
+            <div className="form-group">
+              <label className="form-label">Subscriber Status</label>
+              <select className="select" value={form.subscriber_status} onChange={handleSubscriberStatusChange}>
+                {SUBSCRIBER_STATUS_OPTIONS.map(o => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div className="form-group">
+            <label className="form-label" style={{ opacity: odbActive ? 1 : 0.6 }}>Operator Determined Barring</label>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '6px 16px', opacity: odbActive ? 1 : 0.5 }}>
+              {ODB_BITS.map(({ value, label }) => (
+                <label key={value} className="checkbox-wrap" style={{ marginBottom: 4 }}>
+                  <input
+                    type="checkbox"
+                    checked={!!(odb & value)}
+                    disabled={!odbActive}
+                    onChange={() => toggleOdb(value)}
+                  />
+                  <span style={{ fontSize: '0.82rem' }}>{label}</span>
+                </label>
+              ))}
+            </div>
+            {!odbActive && (
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 4 }}>
+                Barring flags apply only when Subscriber Status is Operator Determined Barring.
+              </div>
+            )}
+            {odbActive && (
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 4 }}>
+                Raw value: {odb}
+              </div>
+            )}
           </div>
 
           <div style={SECTION_STYLE}>Access Restrictions</div>

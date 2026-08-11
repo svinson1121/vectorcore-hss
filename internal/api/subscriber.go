@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -71,7 +72,30 @@ func (s *Server) listSubscribers(ctx context.Context, input *SubscriberListInput
 	return &SubscriberListOutput{Body: SubscriberListBody{Total: total, Items: items}}, nil
 }
 
+// validateSubscriberStatusODB enforces TS 29.272 §7.3.29/§7.3.30 constraints:
+// Subscriber-Status must be a defined enum value, Operator-Determined-Barring
+// must not contain reserved bits, and ODB flags are only meaningful while
+// barring is active — they are cleared otherwise so no stale restriction can
+// ever be emitted in Subscription-Data.
+func validateSubscriberStatusODB(sub *models.Subscriber) error {
+	switch sub.SubscriberStatus {
+	case models.SubscriberStatusServiceGranted, models.SubscriberStatusOperatorDeterminedBarring:
+	default:
+		return fmt.Errorf("subscriber_status must be 0 (SERVICE_GRANTED) or 1 (OPERATOR_DETERMINED_BARRING), got %d", sub.SubscriberStatus)
+	}
+	if sub.OperatorDeterminedBarring&^models.ODBValidMask != 0 {
+		return fmt.Errorf("operator_determined_barring contains undefined/reserved bits: 0x%08x", sub.OperatorDeterminedBarring)
+	}
+	if sub.SubscriberStatus == models.SubscriberStatusServiceGranted {
+		sub.OperatorDeterminedBarring = 0
+	}
+	return nil
+}
+
 func (s *Server) createSubscriber(ctx context.Context, input *SubscriberCreateInput) (*SubscriberOutput, error) {
+	if err := validateSubscriberStatusODB(input.Body); err != nil {
+		return nil, huma.Error422UnprocessableEntity(err.Error(), err)
+	}
 	input.Body.LastModified = time.Now().UTC().Format(time.RFC3339)
 	if err := s.db.WithContext(ctx).Create(input.Body).Error; err != nil {
 		return nil, huma.Error500InternalServerError("db error", err)
@@ -112,6 +136,9 @@ func (s *Server) updateSubscriber(ctx context.Context, input *SubscriberUpdateIn
 		}
 		return nil, huma.Error500InternalServerError("db error", err)
 	}
+	if err := validateSubscriberStatusODB(input.Body); err != nil {
+		return nil, huma.Error422UnprocessableEntity(err.Error(), err)
+	}
 	input.Body.LastModified = time.Now().UTC().Format(time.RFC3339)
 	input.Body.SubscriberID = input.ID
 	// Preserve internal network-node state — written by Diameter/5G layers,
@@ -129,7 +156,12 @@ func (s *Server) updateSubscriber(ctx context.Context, input *SubscriberUpdateIn
 	input.Body.ServingVLRTimestamp = old.ServingVLRTimestamp
 	input.Body.ServingSGSN = old.ServingSGSN
 	input.Body.ServingSGSNTimestamp = old.ServingSGSNTimestamp
-	ardChanged := !equalUint32Ptr(old.AccessRestrictionData, input.Body.AccessRestrictionData)
+	// subscriptionDataChanged tracks fields carried in S6a Subscription-Data
+	// (Access-Restriction-Data, Subscriber-Status, Operator-Determined-Barring)
+	// so an in-session subscriber can be updated via IDR without a fresh ULR.
+	subscriptionDataChanged := !equalUint32Ptr(old.AccessRestrictionData, input.Body.AccessRestrictionData) ||
+		old.SubscriberStatus != input.Body.SubscriberStatus ||
+		old.OperatorDeterminedBarring != input.Body.OperatorDeterminedBarring
 	if err := s.db.WithContext(ctx).Save(input.Body).Error; err != nil {
 		return nil, huma.Error500InternalServerError("db error", err)
 	}
@@ -149,7 +181,7 @@ func (s *Server) updateSubscriber(ctx context.Context, input *SubscriberUpdateIn
 			}
 		}()
 	}
-	if ardChanged && s.idr != nil && input.Body.IMSI != "" && !nowDisabled {
+	if subscriptionDataChanged && s.idr != nil && input.Body.IMSI != "" && !nowDisabled {
 		imsi := input.Body.IMSI
 		go func() {
 			if err := s.idr.SendIDRByIMSI(context.Background(), imsi); err != nil {

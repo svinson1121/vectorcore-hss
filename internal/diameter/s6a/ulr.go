@@ -174,7 +174,8 @@ func (h *Handlers) ULR(conn diam.Conn, msg *diam.Message) (*diam.Message, error)
 
 func (h *Handlers) buildSubscriptionData(ctx context.Context, sub *models.Subscriber) (*SubscriptionData, error) {
 	sd := &SubscriptionData{
-		SubscriberStatus:              0,
+		SubscriberStatus:              int32(sub.SubscriberStatus),
+		OperatorDeterminedBarring:     sub.OperatorDeterminedBarring,
 		NetworkAccessMode:             int32(sub.NAM),
 		AccessRestrictionData:         ardValue(sub.AccessRestrictionData),
 		SubscribedPeriodicRAUTAUTimer: uint32(sub.SubscribedRAUTAUTimer),

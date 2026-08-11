@@ -95,19 +95,60 @@ func (AUC) TableName() string { return "auc" }
 
 // ── SUBSCRIBER ───────────────────────────────────────────────────────────────
 
+// Subscriber-Status values per 3GPP TS 29.272 §7.3.29 (AVP 1424, Enumerated).
+const (
+	SubscriberStatusServiceGranted            = 0
+	SubscriberStatusOperatorDeterminedBarring = 1
+)
+
+// Operator-Determined-Barring bit positions per 3GPP TS 29.272 §7.3.30
+// (AVP 1425, Unsigned32 bitmask). Multiple bits may be set simultaneously.
+const (
+	ODBAllPacketOrientedServicesBarred                      uint32 = 1 << 0
+	ODBRoamerAccessHPLMNAPBarred                            uint32 = 1 << 1
+	ODBRoamerAccessVPLMNAPBarred                            uint32 = 1 << 2
+	ODBBarringOfAllOutgoingCalls                            uint32 = 1 << 3
+	ODBBarringOfAllOutgoingInternationalCalls               uint32 = 1 << 4
+	ODBBarringOfAllOutgoingInternationalCallsExceptHomePLMN uint32 = 1 << 5
+	ODBBarringOfAllOutgoingInterZonalCalls                  uint32 = 1 << 6
+	ODBBarringOfAllOutgoingInterZonalCallsExceptHomePLMN    uint32 = 1 << 7
+	ODBBarringOfInternationalExceptHomePLMNAndInterZonal    uint32 = 1 << 8
+
+	// ODBValidMask is the union of all currently-defined TS 29.272 §7.3.30 bits.
+	// Reserved/undefined bits must never be accepted or emitted.
+	ODBValidMask = ODBAllPacketOrientedServicesBarred |
+		ODBRoamerAccessHPLMNAPBarred |
+		ODBRoamerAccessVPLMNAPBarred |
+		ODBBarringOfAllOutgoingCalls |
+		ODBBarringOfAllOutgoingInternationalCalls |
+		ODBBarringOfAllOutgoingInternationalCallsExceptHomePLMN |
+		ODBBarringOfAllOutgoingInterZonalCalls |
+		ODBBarringOfAllOutgoingInterZonalCallsExceptHomePLMN |
+		ODBBarringOfInternationalExceptHomePLMNAndInterZonal
+)
+
 type Subscriber struct {
-	SubscriberID                int        `gorm:"column:subscriber_id;primaryKey;autoIncrement"  json:"subscriber_id,omitempty"`
-	IMSI                        string     `gorm:"column:imsi;size:18;uniqueIndex;not null"        json:"imsi"`
-	Enabled                     *bool      `gorm:"column:enabled;default:true"                     json:"enabled,omitempty"`
-	AUCID                       int        `gorm:"column:auc_id;not null"                          json:"auc_id"`
-	DefaultAPN                  int        `gorm:"column:default_apn;not null"                     json:"default_apn"`
-	APNList                     string     `gorm:"column:apn_list;size:64;not null"                json:"apn_list"`
-	MSISDN                      *string    `gorm:"column:msisdn;size:18"                           json:"msisdn,omitempty"`
-	UEAMBRDown                  int        `gorm:"column:ue_ambr_dl;default:999999"                json:"ue_ambr_dl,omitempty"`
-	UEAMBRUp                    int        `gorm:"column:ue_ambr_ul;default:999999"                json:"ue_ambr_ul,omitempty"`
-	NAM                         int        `gorm:"column:nam;default:0"                            json:"nam,omitempty"`
-	AccessRestrictionData       *uint32    `gorm:"column:access_restriction_data"                  json:"access_restriction_data,omitempty"`
-	RoamingEnabled              *bool      `gorm:"column:roaming_enabled;default:true"             json:"roaming_enabled,omitempty"`
+	SubscriberID          int     `gorm:"column:subscriber_id;primaryKey;autoIncrement"  json:"subscriber_id,omitempty"`
+	IMSI                  string  `gorm:"column:imsi;size:18;uniqueIndex;not null"        json:"imsi"`
+	Enabled               *bool   `gorm:"column:enabled;default:true"                     json:"enabled,omitempty"`
+	AUCID                 int     `gorm:"column:auc_id;not null"                          json:"auc_id"`
+	DefaultAPN            int     `gorm:"column:default_apn;not null"                     json:"default_apn"`
+	APNList               string  `gorm:"column:apn_list;size:64;not null"                json:"apn_list"`
+	MSISDN                *string `gorm:"column:msisdn;size:18"                           json:"msisdn,omitempty"`
+	UEAMBRDown            int     `gorm:"column:ue_ambr_dl;default:999999"                json:"ue_ambr_dl,omitempty"`
+	UEAMBRUp              int     `gorm:"column:ue_ambr_ul;default:999999"                json:"ue_ambr_ul,omitempty"`
+	NAM                   int     `gorm:"column:nam;default:0"                            json:"nam,omitempty"`
+	AccessRestrictionData *uint32 `gorm:"column:access_restriction_data"                  json:"access_restriction_data,omitempty"`
+	RoamingEnabled        *bool   `gorm:"column:roaming_enabled;default:true"             json:"roaming_enabled,omitempty"`
+	// SubscriberStatus is the Subscriber-Status AVP (TS 29.272 §7.3.29):
+	// 0=SERVICE_GRANTED, 1=OPERATOR_DETERMINED_BARRING. Independent of Enabled
+	// and RoamingEnabled, which remain the HSS's own admin/roaming controls.
+	SubscriberStatus int `gorm:"column:subscriber_status;default:0" json:"subscriber_status,omitempty"`
+	// OperatorDeterminedBarring is the Operator-Determined-Barring AVP bitmask
+	// (TS 29.272 §7.3.30). Only meaningful when SubscriberStatus is
+	// OPERATOR_DETERMINED_BARRING; must be 0 otherwise. Separate from
+	// AccessRestrictionData, which encodes unrelated Access-Restriction-Data semantics.
+	OperatorDeterminedBarring   uint32     `gorm:"column:operator_determined_barring;default:0"    json:"operator_determined_barring,omitempty"`
 	SubscribedRAUTAUTimer       int        `gorm:"column:subscribed_rau_tau_timer;default:300"     json:"subscribed_rau_tau_timer,omitempty"`
 	ServingMME                  *string    `gorm:"column:serving_mme;size:512"                     json:"serving_mme,omitempty"`
 	ServingMMETimestamp         *time.Time `gorm:"column:serving_mme_timestamp"                    json:"serving_mme_timestamp,omitempty"`

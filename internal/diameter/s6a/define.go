@@ -15,9 +15,9 @@ const (
 	FeatureListIDSMSInMME = uint32(2)
 	FeatureBitSMSInMME    = uint32(1 << 0)
 
-	avpAlertReason        = uint32(1434)
-	avpMMENumberForMTSMS  = uint32(1645)
-	avpSMSRegisterRequest = uint32(1648)
+	avpAlertReason               = uint32(1434)
+	avpMMENumberForMTSMS         = uint32(1645)
+	avpSMSRegisterRequest        = uint32(1648)
 	avpMaximumUEAvailabilityTime = uint32(3329)
 
 	SMSRegistrationRequired     = int32(0)
@@ -108,9 +108,13 @@ type APNConfigurationProfile struct {
 }
 
 type SubscriptionData struct {
-	MSISDN                        datatype.OctetString
-	AccessRestrictionData         uint32
-	SubscriberStatus              int32
+	MSISDN                datatype.OctetString
+	AccessRestrictionData uint32
+	SubscriberStatus      int32
+	// OperatorDeterminedBarring is the Operator-Determined-Barring AVP bitmask
+	// (TS 29.272 §7.3.30). Only emitted when SubscriberStatus indicates
+	// OPERATOR_DETERMINED_BARRING; see appendSubscriptionDataAVPs.
+	OperatorDeterminedBarring     uint32
 	NetworkAccessMode             int32
 	AMBR                          AMBR
 	APNConfigurationProfile       APNConfigurationProfile

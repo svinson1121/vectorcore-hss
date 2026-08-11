@@ -6,6 +6,8 @@ import (
 	"github.com/fiorix/go-diameter/v4/diam"
 	"github.com/fiorix/go-diameter/v4/diam/avp"
 	"github.com/fiorix/go-diameter/v4/diam/datatype"
+
+	"github.com/svinson1121/vectorcore-hss/internal/models"
 )
 
 // avpIMSVoiceOverPSSessions is AVP 1291 (3GPP TS 29.272 §7.3.132).
@@ -31,6 +33,13 @@ func appendSubscriptionDataAVPs(msg *diam.Message, sd *SubscriptionData) {
 	if sd.IMSVoiceOverPSSessions >= 0 {
 		subAVPs = append(subAVPs, diam.NewAVP(avpIMSVoiceOverPSSessions, avp.Vbit, Vendor3GPP,
 			datatype.Enumerated(sd.IMSVoiceOverPSSessions)))
+	}
+	// Operator-Determined-Barring (TS 29.272 §7.3.30) is only meaningful — and
+	// must only be emitted — while Subscriber-Status indicates barring is
+	// active. A zero mask means "not barred", so it is also omitted then.
+	if sd.SubscriberStatus == int32(models.SubscriberStatusOperatorDeterminedBarring) && sd.OperatorDeterminedBarring != 0 {
+		subAVPs = append(subAVPs, diam.NewAVP(avp.OperatorDeterminedBarring, avp.Mbit|avp.Vbit, Vendor3GPP,
+			datatype.Unsigned32(sd.OperatorDeterminedBarring)))
 	}
 
 	profAVPs := []*diam.AVP{
