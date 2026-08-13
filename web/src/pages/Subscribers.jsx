@@ -9,6 +9,7 @@ import { useToast } from '../components/Toast.jsx'
 import {
   getSubscribers, createSubscriber, updateSubscriber, deleteSubscriber,
   getAUCs, getAPNs, getEIRHistory, getIMSSubscribers, getSubscriberAttributes, getSubscriberRoutings,
+  getAccessRestrictionAudit,
 } from '../api/client.js'
 import SubscriberAttributes from './SubscriberAttributes.jsx'
 import SubscriberRoutings from './SubscriberRoutings.jsx'
@@ -35,18 +36,36 @@ function fmtBps(v) {
 
 const NAM_LABELS = { 0: 'PACKET_AND_CIRCUIT (PS+CS)', 2: 'ONLY_PACKET (PS Only)' }
 
+// Access-Restriction-Data bit positions per 3GPP TS 29.272 §7.3.31 (AVP 1426).
+// A checked box means the corresponding access is NOT allowed. This is the
+// subscriber's RAT/access authorization mask — separate from an APN's CIoT
+// features (see the APNs page): restricting NB-IoT here does not depend on,
+// and is not granted by, any APN setting.
 const RAT_BITS = [
-  { value: 1,   label: 'UTRAN (3G)' },
-  { value: 2,   label: 'GERAN (2G)' },
-  { value: 4,   label: 'GAN' },
-  { value: 8,   label: 'I-HSPA-Evo' },
-  { value: 16,  label: 'E-UTRAN (4G)' },
-  { value: 32,  label: 'HO Non-3GPP' },
-  { value: 64,  label: 'NR as Secondary RAT (NSA)' },
-  { value: 128, label: 'NR in Unlicensed Spectrum' },
-  { value: 256, label: 'NR in 5GS (SA)' },
-  { value: 512, label: 'Non-3GPP 5GS' },
+  { value: 1,    label: 'UTRAN Not Allowed' },
+  { value: 2,    label: 'GERAN Not Allowed' },
+  { value: 4,    label: 'GAN Not Allowed' },
+  { value: 8,    label: 'I-HSPA Evolution Not Allowed' },
+  { value: 16,   label: 'WB-E-UTRAN Not Allowed' },
+  { value: 32,   label: 'HO to Non-3GPP Access Not Allowed' },
+  { value: 64,   label: 'NB-IoT Not Allowed' },
+  { value: 128,  label: 'Enhanced Coverage Not Allowed' },
+  { value: 256,  label: 'NR as Secondary RAT in E-UTRAN Not Allowed' },
+  { value: 512,  label: 'Unlicensed Spectrum as Secondary RAT Not Allowed' },
+  { value: 1024, label: 'NR in 5GS Not Allowed' },
+  { value: 2048, label: 'LTE-M Not Allowed' },
+  { value: 4096, label: 'WB-E-UTRAN Except LTE-M Not Allowed' },
 ]
+
+// Bits whose UI label changed meaning when this table was corrected to match
+// TS 29.272 §7.3.31 (previously mislabeled as NR/5G-related restrictions).
+// Mirrors models.ARDReinterpretedBitsMask in internal/models/models.go.
+const ARD_REINTERPRETED_BITS_MASK = 64 | 128 | 256 | 512
+
+// Per TS 29.272 §7.3.31 NOTE 2: bits 11 (LTE-M) and 12 (WB-E-UTRAN Except
+// LTE-M) are only meaningful when bit 4 (WB-E-UTRAN) is not set.
+const ARD_WB_EUTRAN_NOT_ALLOWED = 16
+const ARD_LTEM_CONFLICT_MASK = 2048 | 4096
 
 // Subscriber-Status AVP values (3GPP TS 29.272 §7.3.29).
 const SUBSCRIBER_STATUS_OPTIONS = [
@@ -516,19 +535,27 @@ function SubscriberModal({ sub, onClose, onSaved, aucList, apnList }) {
 
           <div style={SECTION_STYLE}>Access Restrictions</div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '6px 16px' }}>
-            {RAT_BITS.map(({ value, label }) => (
-              <label key={value} className="checkbox-wrap" style={{ marginBottom: 4 }}>
-                <input
-                  type="checkbox"
-                  checked={!!(ard & value)}
-                  onChange={() => toggleRat(value)}
-                />
-                <span style={{ fontSize: '0.82rem' }}>{label}</span>
-              </label>
-            ))}
+            {RAT_BITS.map(({ value, label }) => {
+              const wbEUtranConflict = (value & ARD_LTEM_CONFLICT_MASK) !== 0 && (ard & ARD_WB_EUTRAN_NOT_ALLOWED) !== 0
+              const lteMConflict = value === ARD_WB_EUTRAN_NOT_ALLOWED && (ard & ARD_LTEM_CONFLICT_MASK) !== 0
+              const disabled = wbEUtranConflict || lteMConflict
+              return (
+                <label key={value} className="checkbox-wrap" style={{ marginBottom: 4, opacity: disabled ? 0.5 : 1 }}>
+                  <input
+                    type="checkbox"
+                    checked={!!(ard & value)}
+                    disabled={disabled}
+                    onChange={() => toggleRat(value)}
+                    title={disabled ? 'WB-E-UTRAN Not Allowed and LTE-M restrictions are mutually exclusive (TS 29.272 §7.3.31 NOTE 2)' : undefined}
+                  />
+                  <span style={{ fontSize: '0.82rem' }}>{label}</span>
+                </label>
+              )
+            })}
           </div>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 4 }}>
-            Raw value: {ard}
+            Raw value: {ard}. Note: "WB-E-UTRAN Not Allowed" and the LTE-M restrictions are mutually exclusive —
+            bits 11/12 only apply when bit 4 is not set (TS 29.272 §7.3.31 NOTE 2).
           </div>
 
           <div style={SECTION_STYLE}>5G / NR</div>
@@ -571,8 +598,18 @@ export default function Subscribers() {
   const [imsSubscribers, setIMSSubscribers] = useState([])
   const [subscriberAttributes, setSubscriberAttributes] = useState([])
   const [subscriberRoutings, setSubscriberRoutings] = useState([])
+  const [ardAudit, setArdAudit] = useState([])
 
   const { items, total, loading, loadingMore, error, sentinelRef, refresh } = useInfiniteScroll(getSubscribers, search)
+
+  function refreshArdAudit() {
+    getAccessRestrictionAudit().then(d => setArdAudit(Array.isArray(d) ? d : [])).catch(() => {})
+  }
+
+  function handleSaved() {
+    refresh()
+    refreshArdAudit()
+  }
 
   useEffect(() => {
     getAUCs().then(d => setAucList(Array.isArray(d?.items) ? d.items : [])).catch(() => {})
@@ -581,7 +618,13 @@ export default function Subscribers() {
     getIMSSubscribers().then(d => setIMSSubscribers(Array.isArray(d?.items) ? d.items : Array.isArray(d) ? d : [])).catch(() => {})
     getSubscriberAttributes().then(d => setSubscriberAttributes(Array.isArray(d) ? d : [])).catch(() => {})
     getSubscriberRoutings().then(d => setSubscriberRoutings(Array.isArray(d) ? d : [])).catch(() => {})
+    refreshArdAudit()
   }, [])
+
+  // Labels for bits in ARD_REINTERPRETED_BITS_MASK, for the audit tab.
+  function reinterpretedBitLabels(value) {
+    return RAT_BITS.filter(b => (b.value & ARD_REINTERPRETED_BITS_MASK) !== 0 && (value & b.value) !== 0).map(b => b.label)
+  }
 
   const { sorted: sortedSubs, sortKey, sortDir, handleSort } = useSort(items, 'imsi')
 
@@ -676,6 +719,9 @@ export default function Subscribers() {
         <button style={TAB_STYLE(activeTab === 'subscribers')} onClick={() => setActiveTab('subscribers')}>Subscribers</button>
         <button style={TAB_STYLE(activeTab === 'attributes')} onClick={() => setActiveTab('attributes')}>Attributes</button>
         <button style={TAB_STYLE(activeTab === 'routings')} onClick={() => setActiveTab('routings')}>Routings</button>
+        <button style={TAB_STYLE(activeTab === 'ard-audit')} onClick={() => setActiveTab('ard-audit')}>
+          ARD Audit{ardAudit.length > 0 ? ` (${ardAudit.length})` : ''}
+        </button>
       </div>
 
       {activeTab === 'subscribers' && (<>
@@ -754,15 +800,61 @@ export default function Subscribers() {
         )}
 
         {modal === 'add' && (
-          <SubscriberModal onClose={() => setModal(null)} onSaved={refresh} aucList={aucList} apnList={apnList} />
+          <SubscriberModal onClose={() => setModal(null)} onSaved={handleSaved} aucList={aucList} apnList={apnList} />
         )}
         {modal && typeof modal === 'object' && modal.sub && (
-          <SubscriberModal sub={modal.sub} onClose={() => setModal(null)} onSaved={refresh} aucList={aucList} apnList={apnList} />
+          <SubscriberModal sub={modal.sub} onClose={() => setModal(null)} onSaved={handleSaved} aucList={aucList} apnList={apnList} />
         )}
       </>)}
 
       {activeTab === 'attributes' && <SubscriberAttributes compact />}
       {activeTab === 'routings' && <SubscriberRoutings compact />}
+
+      {activeTab === 'ard-audit' && (
+        <div>
+          <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: 12 }}>
+            Subscribers whose stored Access-Restriction-Data includes a bit (0x40/0x80/0x100/0x200) that this
+            UI previously showed under an incorrect NR/5G label. Review each subscriber's Access Restrictions
+            to confirm the checked boxes still reflect the intended restriction, per 3GPP TS 29.272 §7.3.31.
+          </div>
+          {ardAudit.length === 0 ? (
+            <div className="empty-state">No subscribers flagged — nothing to review.</div>
+          ) : (
+            <div className="table-container">
+              <table>
+                <thead>
+                  <tr>
+                    <th>IMSI</th>
+                    <th>Raw Value</th>
+                    <th>Affected Restrictions</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ardAudit.map(row => (
+                    <tr key={row.subscriber_id}>
+                      <td className="mono" style={{ fontSize: '0.82rem', fontWeight: 600 }}>{row.imsi}</td>
+                      <td className="mono" style={{ fontSize: '0.82rem' }}>{row.access_restriction_data}</td>
+                      <td style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                        {reinterpretedBitLabels(row.access_restriction_data).join(', ')}
+                      </td>
+                      <td>
+                        <button
+                          className="btn-icon"
+                          title="Review in Subscribers tab"
+                          onClick={() => { setSearch(row.imsi); setActiveTab('subscribers') }}
+                        >
+                          <Pencil size={13} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

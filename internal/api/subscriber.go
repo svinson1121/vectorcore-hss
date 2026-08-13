@@ -40,13 +40,53 @@ type SubscriberUpdateInput struct {
 	Body *models.Subscriber
 }
 
+// SubscriberARDAuditItem identifies a subscriber whose stored
+// Access-Restriction-Data includes a bit that was mislabeled in the Subscribers
+// UI prior to the TS 29.272 §7.3.31 mapping fix (see
+// models.ARDReinterpretedBitsMask), and so may not reflect what the
+// administrator originally intended.
+type SubscriberARDAuditItem struct {
+	SubscriberID          int    `json:"subscriber_id"`
+	IMSI                  string `json:"imsi"`
+	AccessRestrictionData uint32 `json:"access_restriction_data"`
+}
+type SubscriberARDAuditOutput struct{ Body []SubscriberARDAuditItem }
+
 func registerSubscriberRoutes(s *Server, api huma.API) {
 	huma.Register(api, huma.Operation{OperationID: "list-subscriber", Method: http.MethodGet, Path: "/subscriber", Summary: "List Subscribers", Tags: []string{"Subscriber"}}, s.listSubscribers)
 	huma.Register(api, huma.Operation{OperationID: "create-subscriber", Method: http.MethodPost, Path: "/subscriber", Summary: "Create Subscriber", Tags: []string{"Subscriber"}, DefaultStatus: http.StatusCreated}, s.createSubscriber)
 	huma.Register(api, huma.Operation{OperationID: "get-subscriber", Method: http.MethodGet, Path: "/subscriber/{id}", Summary: "Get Subscriber", Tags: []string{"Subscriber"}}, s.getSubscriber)
 	huma.Register(api, huma.Operation{OperationID: "get-subscriber-by-imsi", Method: http.MethodGet, Path: "/subscriber/imsi/{imsi}", Summary: "Get Subscriber by IMSI", Tags: []string{"Subscriber"}}, s.getSubscriberByIMSI)
+	huma.Register(api, huma.Operation{OperationID: "get-subscriber-access-restriction-audit", Method: http.MethodGet, Path: "/subscriber/access-restriction-audit", Summary: "List subscribers with potentially mislabeled Access-Restriction-Data bits", Tags: []string{"Subscriber"}}, s.getAccessRestrictionAudit)
 	huma.Register(api, huma.Operation{OperationID: "update-subscriber", Method: http.MethodPut, Path: "/subscriber/{id}", Summary: "Update Subscriber", Tags: []string{"Subscriber"}}, s.updateSubscriber)
 	huma.Register(api, huma.Operation{OperationID: "delete-subscriber", Method: http.MethodDelete, Path: "/subscriber/{id}", Summary: "Delete Subscriber", Tags: []string{"Subscriber"}}, s.deleteSubscriber)
+}
+
+// getAccessRestrictionAudit lists subscribers whose Access-Restriction-Data
+// contains a bit from models.ARDReinterpretedBitsMask — values (64/128/256/512)
+// that the Subscribers UI previously displayed under incorrect 3GPP labels
+// (e.g. 64 shown as "NR as Secondary RAT" when the spec defines it as
+// "NB-IoT Not Allowed"). These subscribers should be reviewed by an admin to
+// confirm the stored mask still reflects the intended restriction.
+func (s *Server) getAccessRestrictionAudit(ctx context.Context, _ *struct{}) (*SubscriberARDAuditOutput, error) {
+	var items []models.Subscriber
+	if err := s.db.WithContext(ctx).
+		Where("access_restriction_data & ? != 0", models.ARDReinterpretedBitsMask).
+		Find(&items).Error; err != nil {
+		return nil, huma.Error500InternalServerError("db error", err)
+	}
+	out := make([]SubscriberARDAuditItem, 0, len(items))
+	for _, sub := range items {
+		if sub.AccessRestrictionData == nil {
+			continue
+		}
+		out = append(out, SubscriberARDAuditItem{
+			SubscriberID:          sub.SubscriberID,
+			IMSI:                  sub.IMSI,
+			AccessRestrictionData: *sub.AccessRestrictionData,
+		})
+	}
+	return &SubscriberARDAuditOutput{Body: out}, nil
 }
 
 func (s *Server) listSubscribers(ctx context.Context, input *SubscriberListInput) (*SubscriberListOutput, error) {
@@ -92,8 +132,28 @@ func validateSubscriberStatusODB(sub *models.Subscriber) error {
 	return nil
 }
 
+// validateAccessRestrictionData enforces the TS 29.272 §7.3.31 NOTE 2
+// constraint: bits 11 (LTE-M Not Allowed) and 12 (WB-E-UTRAN Except LTE-M Not
+// Allowed) are only meaningful when bit 4 (WB-E-UTRAN Not Allowed) is clear.
+// If WB-E-UTRAN is already entirely prohibited, further restricting LTE-M
+// within it is contradictory. Per the handoff, an invalid combination must be
+// rejected rather than silently reinterpreted/cleared.
+func validateAccessRestrictionData(sub *models.Subscriber) error {
+	if sub.AccessRestrictionData == nil {
+		return nil
+	}
+	ard := *sub.AccessRestrictionData
+	if ard&models.ARDWBEUTRANNotAllowed != 0 && ard&(models.ARDLTEMNotAllowed|models.ARDWBEUTRANExceptLTEMNotAllowed) != 0 {
+		return fmt.Errorf("access_restriction_data: WB-E-UTRAN Not Allowed (bit 4) cannot be combined with LTE-M Not Allowed (bit 11) or WB-E-UTRAN Except LTE-M Not Allowed (bit 12) — per TS 29.272 §7.3.31 NOTE 2, bits 11/12 are only used when bit 4 is not set, got 0x%08x", ard)
+	}
+	return nil
+}
+
 func (s *Server) createSubscriber(ctx context.Context, input *SubscriberCreateInput) (*SubscriberOutput, error) {
 	if err := validateSubscriberStatusODB(input.Body); err != nil {
+		return nil, huma.Error422UnprocessableEntity(err.Error(), err)
+	}
+	if err := validateAccessRestrictionData(input.Body); err != nil {
 		return nil, huma.Error422UnprocessableEntity(err.Error(), err)
 	}
 	input.Body.LastModified = time.Now().UTC().Format(time.RFC3339)
@@ -137,6 +197,9 @@ func (s *Server) updateSubscriber(ctx context.Context, input *SubscriberUpdateIn
 		return nil, huma.Error500InternalServerError("db error", err)
 	}
 	if err := validateSubscriberStatusODB(input.Body); err != nil {
+		return nil, huma.Error422UnprocessableEntity(err.Error(), err)
+	}
+	if err := validateAccessRestrictionData(input.Body); err != nil {
 		return nil, huma.Error422UnprocessableEntity(err.Error(), err)
 	}
 	input.Body.LastModified = time.Now().UTC().Format(time.RFC3339)

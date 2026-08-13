@@ -4,6 +4,27 @@ import "time"
 
 // ── APN ─────────────────────────────────────────────────────────────────────
 
+// Preferred-Data-Mode bit positions per 3GPP TS 29.272 §7.3.209 (AVP 1686,
+// Unsigned32 bitmask applying to APN.NIDDPreferredDataMode). At least one bit
+// must be set when the AVP is emitted; both may be set simultaneously.
+const (
+	PreferredDataModeUserPlane    = 1 << 0
+	PreferredDataModeControlPlane = 1 << 1
+	PreferredDataModeValidMask    = PreferredDataModeUserPlane | PreferredDataModeControlPlane
+)
+
+// Non-IP-Data-Delivery-Mechanism values per 3GPP TS 29.272 §7.3.205 (AVP 1682).
+const (
+	NIDDMechanismSGiBased  = 0
+	NIDDMechanismSCEFBased = 1
+)
+
+// RDS-Indicator values per 3GPP TS 29.272 §7.3.222 (AVP 1697).
+const (
+	RDSDisabled = 0
+	RDSEnabled  = 1
+)
+
 type APN struct {
 	APNID                      int     `gorm:"column:apn_id;primaryKey;autoIncrement" json:"apn_id,omitempty"`
 	APN                        string  `gorm:"column:apn;size:50;not null"            json:"apn"`
@@ -18,13 +39,34 @@ type APN struct {
 	ARPPreemptionCapability    *bool   `gorm:"column:arp_preemption_capability;default:false"  json:"arp_preemption_capability,omitempty"`
 	ARPPreemptionVulnerability *bool   `gorm:"column:arp_preemption_vulnerability;default:false" json:"arp_preemption_vulnerability,omitempty"`
 	ChargingRuleList           *string `gorm:"column:charging_rule_list;size:18"      json:"charging_rule_list,omitempty"`
-	NBIoT                      *bool   `gorm:"column:nbiot;default:false"             json:"nbiot,omitempty"`
-	NIDDScefID                 *string `gorm:"column:nidd_scef_id;size:512"           json:"nidd_scef_id,omitempty"`
-	NIDDScefRealm              *string `gorm:"column:nidd_scef_realm;size:512"        json:"nidd_scef_realm,omitempty"`
-	NIDDMechanism              *int    `gorm:"column:nidd_mechanism"                  json:"nidd_mechanism,omitempty"`
-	NIDDRDS                    *int    `gorm:"column:nidd_rds"                        json:"nidd_rds,omitempty"`
-	NIDDPreferredDataMode      *int    `gorm:"column:nidd_preferred_data_mode"        json:"nidd_preferred_data_mode,omitempty"`
-	LastModified               string  `gorm:"column:last_modified;size:100"          json:"last_modified,omitempty"`
+	// CIoTEnabled gates APN-level CIoT/NIDD subscription features (Non-IP PDN,
+	// SCEF delivery, Preferred Data Mode, RDS). It does NOT authorize a
+	// subscriber to use the NB-IoT RAT — that is controlled independently by
+	// the subscriber's Access-Restriction-Data bit 6 (models.ARDNBIoTNotAllowed).
+	// A UE may use NB-IoT to reach a perfectly ordinary IP APN with this unset,
+	// and conversely this may be set on an APN reached over any RAT. Column
+	// stays "nbiot" for backward compatibility with existing data.
+	CIoTEnabled *bool `gorm:"column:nbiot;default:false" json:"ciot_enabled,omitempty"`
+	// NonIPPDN is Non-IP-PDN-Type-Indicator (TS 29.272 §7.3.204). Only
+	// meaningful when CIoTEnabled is set; when true, PDNType/IPVersion is
+	// ignored by the MME and Non-IP PDN handling applies instead.
+	NonIPPDN *bool `gorm:"column:non_ip_pdn;default:false" json:"non_ip_pdn,omitempty"`
+	// NIDDScefID/NIDDScefRealm are SCEF-ID (TS 29.336) / SCEF-Realm (§7.3.207).
+	// Only emitted when NonIPPDN is true and NIDDMechanism is SCEF-based.
+	NIDDScefID    *string `gorm:"column:nidd_scef_id;size:512"    json:"nidd_scef_id,omitempty"`
+	NIDDScefRealm *string `gorm:"column:nidd_scef_realm;size:512" json:"nidd_scef_realm,omitempty"`
+	// NIDDMechanism is Non-IP-Data-Delivery-Mechanism (§7.3.205): see
+	// NIDDMechanismSGiBased/NIDDMechanismSCEFBased. Only meaningful when
+	// NonIPPDN is true.
+	NIDDMechanism *int `gorm:"column:nidd_mechanism" json:"nidd_mechanism,omitempty"`
+	// NIDDRDS is RDS-Indicator (§7.3.222): see RDSDisabled/RDSEnabled. Only
+	// meaningful when NonIPPDN is true and NIDDMechanism is SCEF-based.
+	NIDDRDS *int `gorm:"column:nidd_rds" json:"nidd_rds,omitempty"`
+	// NIDDPreferredDataMode is Preferred-Data-Mode (§7.3.209): a 2-bit mask,
+	// see PreferredDataModeUserPlane/PreferredDataModeControlPlane. Applies to
+	// IP and Non-IP APNs alike (not gated by NonIPPDN), only by CIoTEnabled.
+	NIDDPreferredDataMode *int   `gorm:"column:nidd_preferred_data_mode" json:"nidd_preferred_data_mode,omitempty"`
+	LastModified          string `gorm:"column:last_modified;size:100"   json:"last_modified,omitempty"`
 }
 
 func (APN) TableName() string { return "apn" }
@@ -125,6 +167,45 @@ const (
 		ODBBarringOfAllOutgoingInterZonalCalls |
 		ODBBarringOfAllOutgoingInterZonalCallsExceptHomePLMN |
 		ODBBarringOfInternationalExceptHomePLMNAndInterZonal
+)
+
+// Access-Restriction-Data bit positions per 3GPP TS 29.272 §7.3.31 (AVP 1426,
+// Unsigned32 bitmask). A set bit means the corresponding access is NOT
+// allowed. This is the subscriber's RAT/access authorization mask, distinct
+// from APN-level CIoT/NIDD configuration (see the APN struct's CIoTEnabled/
+// NonIPPDN fields) — an admin restricting NB-IoT here does not change what an
+// APN offers, and enabling CIoT features on an APN does not grant RAT access.
+//
+// Per §7.3.31 NOTE 2, bits 11 (LTE-M) and 12 (WB-E-UTRAN Except LTE-M) are
+// only meaningful when bit 4 (WB-E-UTRAN) is not set; validateAccessRestrictionData
+// in internal/api/subscriber.go rejects the contradictory combination rather
+// than silently reinterpreting it.
+const (
+	ARDUTRANNotAllowed                          uint32 = 1 << 0
+	ARDGERANNotAllowed                          uint32 = 1 << 1
+	ARDGANNotAllowed                            uint32 = 1 << 2
+	ARDIHSPAEvolutionNotAllowed                 uint32 = 1 << 3
+	ARDWBEUTRANNotAllowed                       uint32 = 1 << 4
+	ARDHOToNon3GPPAccessNotAllowed              uint32 = 1 << 5
+	ARDNBIoTNotAllowed                          uint32 = 1 << 6
+	ARDEnhancedCoverageNotAllowed               uint32 = 1 << 7
+	ARDNRAsSecondaryRATNotAllowed               uint32 = 1 << 8
+	ARDUnlicensedSpectrumSecondaryRATNotAllowed uint32 = 1 << 9
+	ARDNRIn5GSNotAllowed                        uint32 = 1 << 10
+	ARDLTEMNotAllowed                           uint32 = 1 << 11
+	ARDWBEUTRANExceptLTEMNotAllowed             uint32 = 1 << 12
+
+	// ARDReinterpretedBitsMask flags bits whose meaning changed when the
+	// Access Restrictions UI was corrected to match TS 29.272 §7.3.31: values
+	// 64/128/256/512 were previously mislabeled (e.g. shown as "NR as
+	// Secondary RAT" when the spec defines 64/0x40 as "NB-IoT Not Allowed").
+	// Subscribers with any of these bits set may have been configured under
+	// the old, incorrect labels and should be reviewed by an admin — see the
+	// access-restriction-audit endpoint and the "ARD Audit" UI tab.
+	ARDReinterpretedBitsMask = ARDNBIoTNotAllowed |
+		ARDEnhancedCoverageNotAllowed |
+		ARDNRAsSecondaryRATNotAllowed |
+		ARDUnlicensedSpectrumSecondaryRATNotAllowed
 )
 
 type Subscriber struct {

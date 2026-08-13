@@ -76,6 +76,29 @@ func appendSubscriptionDataAVPs(msg *diam.Message, sd *SubscriptionData) {
 		if a.TGPPChargingCharacteristics != "" {
 			apnAVPs = append(apnAVPs, diam.NewAVP(avp.TGPPChargingCharacteristics, avp.Vbit, Vendor3GPP, datatype.UTF8String(a.TGPPChargingCharacteristics)))
 		}
+		// CIoT/NIDD AVPs (TS 29.272 §7.3.204-209, §7.3.222). V-bit only, no
+		// M-bit, per their AVP flag rules. applyCIoTConfig (ulr.go) already
+		// enforces the presence dependencies below, but the emission code
+		// re-checks them so this function's correctness doesn't rely on the
+		// caller having done so.
+		if a.NonIPPDN {
+			apnAVPs = append(apnAVPs, diam.NewAVP(avpNonIPPDNTypeIndicator, avp.Vbit, Vendor3GPP, datatype.Enumerated(1)))
+			apnAVPs = append(apnAVPs, diam.NewAVP(avpNonIPDataDeliveryMechanism, avp.Vbit, Vendor3GPP, datatype.Enumerated(a.NIDDMechanism)))
+			if a.NIDDMechanism == models.NIDDMechanismSCEFBased {
+				if a.SCEFID != "" {
+					apnAVPs = append(apnAVPs, diam.NewAVP(avpSCEFID, avp.Vbit, Vendor3GPP, datatype.DiameterIdentity(a.SCEFID)))
+				}
+				if a.SCEFRealm != "" {
+					apnAVPs = append(apnAVPs, diam.NewAVP(avpSCEFRealm, avp.Vbit, Vendor3GPP, datatype.DiameterIdentity(a.SCEFRealm)))
+				}
+			}
+			if a.RDSSet {
+				apnAVPs = append(apnAVPs, diam.NewAVP(avpRDSIndicator, avp.Vbit, Vendor3GPP, datatype.Enumerated(a.RDSIndicator)))
+			}
+		}
+		if a.PreferredDataMode != 0 {
+			apnAVPs = append(apnAVPs, diam.NewAVP(avpPreferredDataMode, avp.Vbit, Vendor3GPP, datatype.Unsigned32(a.PreferredDataMode)))
+		}
 		profAVPs = append(profAVPs, diam.NewAVP(avp.APNConfiguration, avp.Mbit|avp.Vbit, Vendor3GPP, &diam.GroupedAVP{AVP: apnAVPs}))
 	}
 	subAVPs = append(subAVPs, diam.NewAVP(avp.APNConfigurationProfile, avp.Mbit|avp.Vbit, Vendor3GPP, &diam.GroupedAVP{AVP: profAVPs}))

@@ -105,12 +105,14 @@ function APNModal({ apn, onClose, onSaved, chargingRules }) {
     arp_priority: apn.arp_priority || 1,
     arp_preemption_capability: apn.arp_preemption_capability || false,
     arp_preemption_vulnerability: apn.arp_preemption_vulnerability === true,
-    nbiot: apn.nbiot || false,
+    ciot_enabled: apn.ciot_enabled || false,
+    non_ip_pdn: apn.non_ip_pdn || false,
     nidd_scef_id: apn.nidd_scef_id || '',
     nidd_scef_realm: apn.nidd_scef_realm || '',
     nidd_mechanism: apn.nidd_mechanism != null ? apn.nidd_mechanism : 0,
     nidd_rds: apn.nidd_rds != null ? apn.nidd_rds : 0,
-    nidd_preferred_data_mode: apn.nidd_preferred_data_mode != null ? apn.nidd_preferred_data_mode : 0,
+    preferred_data_mode_user_plane: !!(apn.nidd_preferred_data_mode & 1),
+    preferred_data_mode_control_plane: !!(apn.nidd_preferred_data_mode & 2),
   } : {
     apn: '',
     ip_version: 0,
@@ -123,12 +125,14 @@ function APNModal({ apn, onClose, onSaved, chargingRules }) {
     arp_priority: 1,
     arp_preemption_capability: false,
     arp_preemption_vulnerability: false,
-    nbiot: false,
+    ciot_enabled: false,
+    non_ip_pdn: false,
     nidd_scef_id: '',
     nidd_scef_realm: '',
     nidd_mechanism: 0,
     nidd_rds: 0,
-    nidd_preferred_data_mode: 0,
+    preferred_data_mode_user_plane: false,
+    preferred_data_mode_control_plane: false,
   })
 
   const [selectedRuleIds, setSelectedRuleIds] = useState(initialRuleIds)
@@ -178,16 +182,25 @@ function APNModal({ apn, onClose, onSaved, chargingRules }) {
     e.preventDefault()
     setSaving(true)
     try {
+      const { preferred_data_mode_user_plane, preferred_data_mode_control_plane, ...rest } = form
+      const preferredDataMode = (preferred_data_mode_user_plane ? 1 : 0) | (preferred_data_mode_control_plane ? 2 : 0)
       const payload = {
-        ...form,
+        ...rest,
         ip_version: Number(form.ip_version),
         apn_ambr_dl: Number(form.apn_ambr_dl),
         apn_ambr_ul: Number(form.apn_ambr_ul),
         qci: Number(form.qci),
         arp_priority: Number(form.arp_priority),
-        nidd_mechanism: Number(form.nidd_mechanism),
-        nidd_rds: Number(form.nidd_rds),
-        nidd_preferred_data_mode: Number(form.nidd_preferred_data_mode),
+        // NIDD fields only mean anything when Non-IP PDN is enabled — see
+        // validateAPNCiot (internal/api/apn.go) for the matching backend rule.
+        nidd_mechanism: form.non_ip_pdn ? Number(form.nidd_mechanism) : undefined,
+        nidd_rds: form.non_ip_pdn ? Number(form.nidd_rds) : undefined,
+        nidd_scef_id: form.non_ip_pdn ? form.nidd_scef_id : undefined,
+        nidd_scef_realm: form.non_ip_pdn ? form.nidd_scef_realm : undefined,
+        non_ip_pdn: form.ciot_enabled ? form.non_ip_pdn : undefined,
+        // Preferred-Data-Mode (TS 29.272 §7.3.209): 0 means "not configured",
+        // omitted rather than sent as an invalid all-clear mask.
+        nidd_preferred_data_mode: form.ciot_enabled && preferredDataMode !== 0 ? preferredDataMode : undefined,
         charging_rule_list: selectedRuleIds.join(',') || undefined,
       }
       if (isEdit) {
@@ -312,47 +325,76 @@ function APNModal({ apn, onClose, onSaved, chargingRules }) {
             <ChargingRuleChips selectedIds={selectedRuleIds} ruleList={availableChargingRules} onRemove={removeRule} />
           </div>
 
-          <div style={SECTION_STYLE}>NB-IoT</div>
+          <div style={SECTION_STYLE}>CIoT Features</div>
           <div className="form-row">
             <label className="checkbox-wrap">
-              <input type="checkbox" checked={form.nbiot} onChange={e => set('nbiot', e.target.checked)} />
-              <span className="form-label" style={{ margin: 0 }}>NB-IoT Enabled</span>
+              <input type="checkbox" checked={form.ciot_enabled} onChange={e => set('ciot_enabled', e.target.checked)} />
+              <span className="form-label" style={{ margin: 0 }}>Enable CIoT APN Features</span>
             </label>
           </div>
-          {form.nbiot && (
+          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: -4, marginBottom: 8 }}>
+            Configures APN-level CIoT/NIDD subscription data (Non-IP PDN, SCEF delivery, Preferred Data Mode, RDS).
+            This does not authorize a subscriber to use the NB-IoT RAT — that's controlled per-subscriber under
+            Subscribers → Access Restrictions ("NB-IoT Not Allowed"). A UE may reach this APN over NB-IoT with
+            this off, or reach it over any RAT with this on.
+          </div>
+          {form.ciot_enabled && (
             <>
               <div className="form-row">
-                <div className="form-group">
-                  <label className="form-label">NIDD SCEF ID</label>
-                  <input className="input mono" value={form.nidd_scef_id} onChange={e => set('nidd_scef_id', e.target.value)} placeholder="(optional)" />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">NIDD SCEF Realm</label>
-                  <input className="input mono" value={form.nidd_scef_realm} onChange={e => set('nidd_scef_realm', e.target.value)} placeholder="(optional)" />
-                </div>
+                <label className="checkbox-wrap">
+                  <input type="checkbox" checked={form.non_ip_pdn} onChange={e => set('non_ip_pdn', e.target.checked)} />
+                  <span className="form-label" style={{ margin: 0 }}>Non-IP PDN</span>
+                </label>
               </div>
-              <div className="form-row-3">
-                <div className="form-group">
-                  <label className="form-label">NIDD Mechanism</label>
-                  <select className="select" value={form.nidd_mechanism} onChange={e => set('nidd_mechanism', e.target.value)}>
-                    <option value={0}>0 — SGi</option>
-                    <option value={1}>1 — SCEF</option>
-                  </select>
+              {form.non_ip_pdn && (
+                <>
+                  <div className="form-row-3">
+                    <div className="form-group">
+                      <label className="form-label">NIDD Delivery Mechanism</label>
+                      <select className="select" value={form.nidd_mechanism} onChange={e => set('nidd_mechanism', e.target.value)}>
+                        <option value={0}>0 — SGi-based</option>
+                        <option value={1}>1 — SCEF-based</option>
+                      </select>
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Reliable Data Service (RDS)</label>
+                      <select className="select" value={form.nidd_rds} onChange={e => set('nidd_rds', e.target.value)}>
+                        <option value={0}>0 — Disabled</option>
+                        <option value={1}>1 — Enabled</option>
+                      </select>
+                    </div>
+                  </div>
+                  {Number(form.nidd_mechanism) === 1 && (
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">SCEF ID</label>
+                        <input className="input mono" value={form.nidd_scef_id} onChange={e => set('nidd_scef_id', e.target.value)} placeholder="(optional)" />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">SCEF Realm</label>
+                        <input className="input mono" value={form.nidd_scef_realm} onChange={e => set('nidd_scef_realm', e.target.value)} placeholder="(optional)" />
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+              <div className="form-group">
+                <label className="form-label">Preferred Data Mode</label>
+                <div className="form-row">
+                  <label className="checkbox-wrap">
+                    <input type="checkbox" checked={form.preferred_data_mode_user_plane} onChange={e => set('preferred_data_mode_user_plane', e.target.checked)} />
+                    <span className="form-label" style={{ margin: 0 }}>User Plane Preferred</span>
+                  </label>
+                  <label className="checkbox-wrap">
+                    <input type="checkbox" checked={form.preferred_data_mode_control_plane} onChange={e => set('preferred_data_mode_control_plane', e.target.checked)} />
+                    <span className="form-label" style={{ margin: 0 }}>Control Plane Preferred</span>
+                  </label>
                 </div>
-                <div className="form-group">
-                  <label className="form-label">NIDD RDS</label>
-                  <select className="select" value={form.nidd_rds} onChange={e => set('nidd_rds', e.target.value)}>
-                    <option value={0}>0 — Disabled</option>
-                    <option value={1}>1 — Enabled</option>
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label className="form-label">NIDD Preferred Data Mode</label>
-                  <select className="select" value={form.nidd_preferred_data_mode} onChange={e => set('nidd_preferred_data_mode', e.target.value)}>
-                    <option value={0}>0</option>
-                    <option value={1}>1</option>
-                  </select>
-                </div>
+                {!form.preferred_data_mode_user_plane && !form.preferred_data_mode_control_plane && (
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 4 }}>
+                    Leave both unchecked to omit Preferred-Data-Mode entirely, or check at least one (TS 29.272 §7.3.209).
+                  </div>
+                )}
               </div>
             </>
           )}
@@ -466,7 +508,7 @@ export default function APNs() {
                 <tr>
                   <th>APN Name</th>
                   <th>IP Version</th><th>AMBR DL</th><th>AMBR UL</th>
-                  <th>QCI</th><th>ARP</th><th>NB-IoT</th><th></th>
+                  <th>QCI</th><th>ARP</th><th>CIoT</th><th></th>
                 </tr>
               </thead>
               <tbody>
@@ -481,8 +523,8 @@ export default function APNs() {
                     <td className="mono">{apn.qci || '—'}</td>
                     <td className="mono">{apn.arp_priority || '—'}</td>
                     <td style={{ fontSize: '0.78rem' }}>
-                      {apn.nbiot ? <span style={{ color: 'var(--success)', fontWeight: 600 }}>Yes</span>
-                                 : <span style={{ color: 'var(--text-muted)' }}>No</span>}
+                      {apn.ciot_enabled ? <span style={{ color: 'var(--success)', fontWeight: 600 }}>Yes</span>
+                                        : <span style={{ color: 'var(--text-muted)' }}>No</span>}
                     </td>
                     <td>
                       <div style={{ display: 'flex', gap: 4 }}>
