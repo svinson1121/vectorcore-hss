@@ -6,7 +6,7 @@ import { Users, Activity, Database, XCircle, Shield, Clock, AlertTriangle } from
 import StatCard from '../components/StatCard.jsx'
 import Spinner from '../components/Spinner.jsx'
 import {
-  getSubscribers, getServingAPNs, getPDUSessions,
+  getSubscribers,
   getPrometheusText, parsePrometheusText, sumMetric, getAuthFailures, getHealth,
 } from '../api/client.js'
 
@@ -79,8 +79,6 @@ function authScopeStyle(scope) {
 
 export default function Dashboard() {
   const [subscribers, setSubscribers] = useState([])
-  const [servingAPNs, setServingAPNs] = useState([])
-  const [pduSessions, setPDUSessions] = useState([])
   const [metrics, setMetrics] = useState({})
   const [authFailures, setAuthFailures] = useState([])
   const [authFailuresError, setAuthFailuresError] = useState(null)
@@ -92,10 +90,8 @@ export default function Dashboard() {
 
   const fetchAll = useCallback(async () => {
     try {
-      const [subs, apns, pdus, promText, failuresResult, healthData] = await Promise.all([
+      const [subs, promText, failuresResult, healthData] = await Promise.all([
         getSubscribers().catch(() => []),
-        getServingAPNs().catch(() => []),
-        getPDUSessions().catch(() => []),
         getPrometheusText().catch(() => ''),
         getAuthFailures()
           .then(data => ({ data, error: null }))
@@ -104,8 +100,6 @@ export default function Dashboard() {
       ])
       if (!mountedRef.current) return
       setSubscribers(Array.isArray(subs?.items) ? subs.items : (Array.isArray(subs) ? subs : []))
-      setServingAPNs(Array.isArray(apns) ? apns : [])
-      setPDUSessions(Array.isArray(pdus) ? pdus : [])
       setMetrics(parsePrometheusText(promText || ''))
       setAuthFailures(Array.isArray(failuresResult?.data) ? failuresResult.data : [])
       setAuthFailuresError(failuresResult?.error || null)
@@ -162,19 +156,13 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Subscriber / Session stats */}
-      <div className="stats-grid">
-        <StatCard title="Total Subscribers"       value={subscribers.length.toLocaleString()} icon={<Users size={18} />}    color="var(--accent)"  />
-        <StatCard title="Active 4G PDU Sessions"   value={servingAPNs.length.toLocaleString()} icon={<Activity size={18} />} color="var(--success)" />
-        <StatCard title="Active 5G PDU Sessions"  value={pduSessions.length.toLocaleString()} icon={<Database size={18} />} color="var(--warning)" />
-      </div>
-
-      {/* Prometheus / Metrics block */}
-      <div className="stats-grid" style={{ marginTop: 0 }}>
-        <StatCard title="Diameter Requests" value={totalRequests.toLocaleString()} icon={<Activity size={18} />} color="var(--accent)"  />
-        <StatCard title="Cache Hits"        value={cacheHits.toLocaleString()}     icon={<Shield size={18} />}   color="var(--success)" />
-        <StatCard title="API Requests"      value={apiTotal.toLocaleString()}       icon={<Database size={18} />} color="var(--warning)" />
-        <StatCard title="Uptime" value={formatUptime(health?.uptime_seconds)} icon={<Clock size={18} />} color="var(--info)" subtitle={health?.started_at ? `since ${new Date(health.started_at).toLocaleString()}` : undefined} />
+      {/* Overview stats */}
+      <div className="stats-grid stats-grid-compact">
+        <StatCard title="Total Subscribers" value={subscribers.length.toLocaleString()} icon={<Users size={16} />}    color="var(--accent)"  />
+        <StatCard title="Diameter Requests" value={totalRequests.toLocaleString()} icon={<Activity size={16} />} color="var(--accent)"  />
+        <StatCard title="Cache Hits"        value={cacheHits.toLocaleString()}     icon={<Shield size={16} />}   color="var(--success)" />
+        <StatCard title="API Requests"      value={apiTotal.toLocaleString()}       icon={<Database size={16} />} color="var(--warning)" />
+        <StatCard title="Uptime" value={formatUptime(health?.uptime_seconds)} icon={<Clock size={16} />} color="var(--info)" subtitle={health?.started_at ? `since ${new Date(health.started_at).toLocaleString()}` : undefined} />
       </div>
 
       {/* Diameter by command chart */}

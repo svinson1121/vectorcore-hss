@@ -424,6 +424,39 @@ h1, h2, h3, h4, h5 {
   margin-bottom: 20px;
 }
 
+.stats-grid-compact {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.stats-grid-compact .stat-card {
+  padding: 10px 12px;
+  gap: 8px;
+}
+
+.stats-grid-compact .stat-card-icon {
+  width: 28px;
+  height: 28px;
+}
+
+.stats-grid-compact .stat-card-value {
+  font-size: 1.25rem;
+}
+
+.stats-grid-compact .stat-card-label {
+  font-size: 0.68rem;
+}
+
+.stats-grid-compact .stat-card-subtitle {
+  font-size: 0.68rem;
+}
+
+@media (max-width: 900px) {
+  .stats-grid-compact {
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  }
+}
+
 .peer-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));

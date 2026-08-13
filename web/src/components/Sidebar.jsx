@@ -1,6 +1,6 @@
 import React from 'react'
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, Users, CreditCard, Phone, Globe, ShieldCheck, Globe2, Activity, BarChart2, Settings, UserPlus } from 'lucide-react'
+import { LayoutDashboard, Users, CreditCard, Phone, Globe, ShieldCheck, Globe2, BarChart2, Settings, UserPlus } from 'lucide-react'
 
 const NAV_ITEMS = [
   { to: '/dashboard', label: 'Dashboard', icon: <LayoutDashboard size={16} /> },
@@ -10,7 +10,6 @@ const NAV_ITEMS = [
   { to: '/apns', label: 'APNs', icon: <Globe size={16} /> },
   { to: '/eir', label: 'EIR', icon: <ShieldCheck size={16} /> },
   { to: '/roaming', label: 'Roaming', icon: <Globe2 size={16} /> },
-  { to: '/sessions', label: 'Sessions', icon: <Activity size={16} /> },
   { to: '/metrics', label: 'Metrics', icon: <BarChart2 size={16} /> },
   { to: '/oam', label: 'OAM', icon: <Settings size={16} /> },
 ]

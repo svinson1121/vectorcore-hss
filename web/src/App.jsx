@@ -11,7 +11,6 @@ import APNs from './pages/APNs.jsx'
 import ChargingRules from './pages/ChargingRules.jsx'
 import EIR from './pages/EIR.jsx'
 import Roaming from './pages/Roaming.jsx'
-import Sessions from './pages/Sessions.jsx'
 import Metrics from './pages/Metrics.jsx'
 import OAM from './pages/OAM.jsx'
 import IFCProfiles from './pages/IFCProfiles.jsx'
@@ -34,7 +33,6 @@ export default function App() {
         <Route path="charging" element={<ChargingRules />} />
         <Route path="eir" element={<EIR />} />
         <Route path="roaming" element={<Roaming />} />
-        <Route path="sessions" element={<Sessions />} />
         <Route path="metrics" element={<Metrics />} />
         <Route path="oam" element={<OAM />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
