@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -41,7 +42,53 @@ func (s *Server) listAPNs(ctx context.Context, _ *struct{}) (*APNListOutput, err
 	return &APNListOutput{Body: items}, nil
 }
 
+// validateAPNCiot enforces the TS 29.272 §7.3.204-209/§7.3.222 dependency
+// rules for APN-level CIoT/NIDD configuration: NIDD fields are only
+// meaningful when Non-IP PDN is enabled, SCEF-ID/Realm/RDS only apply to the
+// SCEF-based delivery mechanism, and Preferred-Data-Mode must set at least
+// one of its two defined bits when present (spec NOTE 2 under §7.3.209).
+// Rejecting nonsensical combinations here mirrors validateAccessRestrictionData
+// in subscriber.go: don't silently reinterpret or drop an admin's input.
+func validateAPNCiot(a *models.APN) error {
+	nonIPPDN := a.NonIPPDN != nil && *a.NonIPPDN
+	niddSet := (a.NIDDMechanism != nil) || (a.NIDDScefID != nil && *a.NIDDScefID != "") ||
+		(a.NIDDScefRealm != nil && *a.NIDDScefRealm != "") || (a.NIDDRDS != nil)
+	if !nonIPPDN && niddSet {
+		return fmt.Errorf("nidd_mechanism/nidd_scef_id/nidd_scef_realm/nidd_rds require non_ip_pdn to be enabled (TS 29.272 §7.3.205/§7.3.207/§7.3.222)")
+	}
+	if a.NIDDMechanism != nil {
+		switch *a.NIDDMechanism {
+		case models.NIDDMechanismSGiBased, models.NIDDMechanismSCEFBased:
+		default:
+			return fmt.Errorf("nidd_mechanism must be 0 (SGi-based) or 1 (SCEF-based), got %d", *a.NIDDMechanism)
+		}
+		scefBased := *a.NIDDMechanism == models.NIDDMechanismSCEFBased
+		hasScefID := a.NIDDScefID != nil && *a.NIDDScefID != ""
+		hasScefRealm := a.NIDDScefRealm != nil && *a.NIDDScefRealm != ""
+		if !scefBased && (hasScefID || hasScefRealm) {
+			return fmt.Errorf("nidd_scef_id/nidd_scef_realm require nidd_mechanism to be 1 (SCEF-based)")
+		}
+	}
+	if a.NIDDRDS != nil {
+		switch *a.NIDDRDS {
+		case models.RDSDisabled, models.RDSEnabled:
+		default:
+			return fmt.Errorf("nidd_rds must be 0 (disabled) or 1 (enabled), got %d", *a.NIDDRDS)
+		}
+	}
+	if a.NIDDPreferredDataMode != nil {
+		mode := *a.NIDDPreferredDataMode
+		if mode == 0 || mode&^models.PreferredDataModeValidMask != 0 {
+			return fmt.Errorf("nidd_preferred_data_mode must set at least one of bit 0 (User Plane) or bit 1 (Control Plane) and no other bits, got %d", mode)
+		}
+	}
+	return nil
+}
+
 func (s *Server) createAPN(ctx context.Context, input *APNCreateInput) (*APNOutput, error) {
+	if err := validateAPNCiot(input.Body); err != nil {
+		return nil, huma.Error422UnprocessableEntity(err.Error(), err)
+	}
 	input.Body.LastModified = time.Now().UTC().Format(time.RFC3339)
 	if err := s.db.WithContext(ctx).Create(input.Body).Error; err != nil {
 		return nil, huma.Error500InternalServerError("db error", err)
@@ -69,6 +116,9 @@ func (s *Server) updateAPN(ctx context.Context, input *APNUpdateInput) (*APNOutp
 			return nil, huma.Error404NotFound("not found", err)
 		}
 		return nil, huma.Error500InternalServerError("db error", err)
+	}
+	if err := validateAPNCiot(input.Body); err != nil {
+		return nil, huma.Error422UnprocessableEntity(err.Error(), err)
 	}
 	input.Body.LastModified = time.Now().UTC().Format(time.RFC3339)
 	input.Body.APNID = input.ID

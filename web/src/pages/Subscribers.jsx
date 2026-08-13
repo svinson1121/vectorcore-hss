@@ -35,18 +35,31 @@ function fmtBps(v) {
 
 const NAM_LABELS = { 0: 'PACKET_AND_CIRCUIT (PS+CS)', 2: 'ONLY_PACKET (PS Only)' }
 
+// Access-Restriction-Data bit positions per 3GPP TS 29.272 §7.3.31 (AVP 1426).
+// A checked box means the corresponding access is NOT allowed. This is the
+// subscriber's RAT/access authorization mask — separate from an APN's CIoT
+// features (see the APNs page): restricting NB-IoT here does not depend on,
+// and is not granted by, any APN setting.
 const RAT_BITS = [
-  { value: 1,   label: 'UTRAN (3G)' },
-  { value: 2,   label: 'GERAN (2G)' },
-  { value: 4,   label: 'GAN' },
-  { value: 8,   label: 'I-HSPA-Evo' },
-  { value: 16,  label: 'E-UTRAN (4G)' },
-  { value: 32,  label: 'HO Non-3GPP' },
-  { value: 64,  label: 'NR as Secondary RAT (NSA)' },
-  { value: 128, label: 'NR in Unlicensed Spectrum' },
-  { value: 256, label: 'NR in 5GS (SA)' },
-  { value: 512, label: 'Non-3GPP 5GS' },
+  { value: 1,    label: 'UTRAN Not Allowed' },
+  { value: 2,    label: 'GERAN Not Allowed' },
+  { value: 4,    label: 'GAN Not Allowed' },
+  { value: 8,    label: 'I-HSPA Evolution Not Allowed' },
+  { value: 16,   label: 'WB-E-UTRAN Not Allowed' },
+  { value: 32,   label: 'HO to Non-3GPP Access Not Allowed' },
+  { value: 64,   label: 'NB-IoT Not Allowed' },
+  { value: 128,  label: 'Enhanced Coverage Not Allowed' },
+  { value: 256,  label: 'NR as Secondary RAT in E-UTRAN Not Allowed' },
+  { value: 512,  label: 'Unlicensed Spectrum as Secondary RAT Not Allowed' },
+  { value: 1024, label: 'NR in 5GS Not Allowed' },
+  { value: 2048, label: 'LTE-M Not Allowed' },
+  { value: 4096, label: 'WB-E-UTRAN Except LTE-M Not Allowed' },
 ]
+
+// Per TS 29.272 §7.3.31 NOTE 2: bits 11 (LTE-M) and 12 (WB-E-UTRAN Except
+// LTE-M) are only meaningful when bit 4 (WB-E-UTRAN) is not set.
+const ARD_WB_EUTRAN_NOT_ALLOWED = 16
+const ARD_LTEM_CONFLICT_MASK = 2048 | 4096
 
 // Subscriber-Status AVP values (3GPP TS 29.272 §7.3.29).
 const SUBSCRIBER_STATUS_OPTIONS = [
@@ -516,19 +529,27 @@ function SubscriberModal({ sub, onClose, onSaved, aucList, apnList }) {
 
           <div style={SECTION_STYLE}>Access Restrictions</div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '6px 16px' }}>
-            {RAT_BITS.map(({ value, label }) => (
-              <label key={value} className="checkbox-wrap" style={{ marginBottom: 4 }}>
-                <input
-                  type="checkbox"
-                  checked={!!(ard & value)}
-                  onChange={() => toggleRat(value)}
-                />
-                <span style={{ fontSize: '0.82rem' }}>{label}</span>
-              </label>
-            ))}
+            {RAT_BITS.map(({ value, label }) => {
+              const wbEUtranConflict = (value & ARD_LTEM_CONFLICT_MASK) !== 0 && (ard & ARD_WB_EUTRAN_NOT_ALLOWED) !== 0
+              const lteMConflict = value === ARD_WB_EUTRAN_NOT_ALLOWED && (ard & ARD_LTEM_CONFLICT_MASK) !== 0
+              const disabled = wbEUtranConflict || lteMConflict
+              return (
+                <label key={value} className="checkbox-wrap" style={{ marginBottom: 4, opacity: disabled ? 0.5 : 1 }}>
+                  <input
+                    type="checkbox"
+                    checked={!!(ard & value)}
+                    disabled={disabled}
+                    onChange={() => toggleRat(value)}
+                    title={disabled ? 'WB-E-UTRAN Not Allowed and LTE-M restrictions are mutually exclusive (TS 29.272 §7.3.31 NOTE 2)' : undefined}
+                  />
+                  <span style={{ fontSize: '0.82rem' }}>{label}</span>
+                </label>
+              )
+            })}
           </div>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 4 }}>
-            Raw value: {ard}
+            Raw value: {ard}. Note: "WB-E-UTRAN Not Allowed" and the LTE-M restrictions are mutually exclusive —
+            bits 11/12 only apply when bit 4 is not set (TS 29.272 §7.3.31 NOTE 2).
           </div>
 
           <div style={SECTION_STYLE}>5G / NR</div>

@@ -92,8 +92,28 @@ func validateSubscriberStatusODB(sub *models.Subscriber) error {
 	return nil
 }
 
+// validateAccessRestrictionData enforces the TS 29.272 §7.3.31 NOTE 2
+// constraint: bits 11 (LTE-M Not Allowed) and 12 (WB-E-UTRAN Except LTE-M Not
+// Allowed) are only meaningful when bit 4 (WB-E-UTRAN Not Allowed) is clear.
+// If WB-E-UTRAN is already entirely prohibited, further restricting LTE-M
+// within it is contradictory. Per the handoff, an invalid combination must be
+// rejected rather than silently reinterpreted/cleared.
+func validateAccessRestrictionData(sub *models.Subscriber) error {
+	if sub.AccessRestrictionData == nil {
+		return nil
+	}
+	ard := *sub.AccessRestrictionData
+	if ard&models.ARDWBEUTRANNotAllowed != 0 && ard&(models.ARDLTEMNotAllowed|models.ARDWBEUTRANExceptLTEMNotAllowed) != 0 {
+		return fmt.Errorf("access_restriction_data: WB-E-UTRAN Not Allowed (bit 4) cannot be combined with LTE-M Not Allowed (bit 11) or WB-E-UTRAN Except LTE-M Not Allowed (bit 12) — per TS 29.272 §7.3.31 NOTE 2, bits 11/12 are only used when bit 4 is not set, got 0x%08x", ard)
+	}
+	return nil
+}
+
 func (s *Server) createSubscriber(ctx context.Context, input *SubscriberCreateInput) (*SubscriberOutput, error) {
 	if err := validateSubscriberStatusODB(input.Body); err != nil {
+		return nil, huma.Error422UnprocessableEntity(err.Error(), err)
+	}
+	if err := validateAccessRestrictionData(input.Body); err != nil {
 		return nil, huma.Error422UnprocessableEntity(err.Error(), err)
 	}
 	input.Body.LastModified = time.Now().UTC().Format(time.RFC3339)
@@ -137,6 +157,9 @@ func (s *Server) updateSubscriber(ctx context.Context, input *SubscriberUpdateIn
 		return nil, huma.Error500InternalServerError("db error", err)
 	}
 	if err := validateSubscriberStatusODB(input.Body); err != nil {
+		return nil, huma.Error422UnprocessableEntity(err.Error(), err)
+	}
+	if err := validateAccessRestrictionData(input.Body); err != nil {
 		return nil, huma.Error422UnprocessableEntity(err.Error(), err)
 	}
 	input.Body.LastModified = time.Now().UTC().Format(time.RFC3339)

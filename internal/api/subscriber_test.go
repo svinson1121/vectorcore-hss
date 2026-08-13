@@ -109,6 +109,63 @@ func TestUpdateSubscriberSkipsIDRWhenDisabled(t *testing.T) {
 	}
 }
 
+// TestCreateSubscriberRejectsWBEUTRANLTEMConflict verifies the TS 29.272
+// §7.3.31 NOTE 2 rule: bit 4 (WB-E-UTRAN Not Allowed) cannot be combined with
+// bit 11 (LTE-M Not Allowed) or bit 12 (WB-E-UTRAN Except LTE-M Not Allowed).
+func TestCreateSubscriberRejectsWBEUTRANLTEMConflict(t *testing.T) {
+	s := newTestServer(t)
+	ctx := context.Background()
+
+	cases := []struct {
+		name string
+		imsi string
+		ard  uint32
+	}{
+		{"bit4_plus_bit11", "001010000000230", models.ARDWBEUTRANNotAllowed | models.ARDLTEMNotAllowed},
+		{"bit4_plus_bit12", "001010000000231", models.ARDWBEUTRANNotAllowed | models.ARDWBEUTRANExceptLTEMNotAllowed},
+		{"bit4_plus_both", "001010000000232", models.ARDWBEUTRANNotAllowed | models.ARDLTEMNotAllowed | models.ARDWBEUTRANExceptLTEMNotAllowed},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			enabled := true
+			ard := tc.ard
+			sub := models.Subscriber{
+				IMSI:                  tc.imsi,
+				Enabled:               &enabled,
+				AUCID:                 1,
+				DefaultAPN:            1,
+				APNList:               "1",
+				AccessRestrictionData: &ard,
+			}
+			if _, err := s.createSubscriber(ctx, &SubscriberCreateInput{Body: &sub}); err == nil {
+				t.Fatalf("expected validation error for ARD 0x%08x, got nil", tc.ard)
+			}
+		})
+	}
+}
+
+// TestCreateSubscriberAllowsLTEMWithoutWBEUTRANConflict confirms the LTE-M
+// bits are accepted on their own (bit 4 clear) — only the combination with
+// bit 4 is invalid.
+func TestCreateSubscriberAllowsLTEMWithoutWBEUTRANConflict(t *testing.T) {
+	s := newTestServer(t)
+	ctx := context.Background()
+
+	enabled := true
+	ard := models.ARDLTEMNotAllowed | models.ARDWBEUTRANExceptLTEMNotAllowed
+	sub := models.Subscriber{
+		IMSI:                  "001010000000233",
+		Enabled:               &enabled,
+		AUCID:                 1,
+		DefaultAPN:            1,
+		APNList:               "1",
+		AccessRestrictionData: &ard,
+	}
+	if _, err := s.createSubscriber(ctx, &SubscriberCreateInput{Body: &sub}); err != nil {
+		t.Fatalf("unexpected validation error: %v", err)
+	}
+}
+
 func TestCreateSubscriberDefaultsToServiceGranted(t *testing.T) {
 	s := newTestServer(t)
 	ctx := context.Background()
