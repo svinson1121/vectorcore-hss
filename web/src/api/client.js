@@ -47,7 +47,6 @@ export const getSubscriberByIMSI = (imsi) => request('GET', `/subscriber/imsi/${
 export const createSubscriber = (data) => request('POST', '/subscriber', data)
 export const updateSubscriber = (id, data) => request('PUT', `/subscriber/${id}`, data)
 export const deleteSubscriber = (id) => request('DELETE', `/subscriber/${id}`)
-export const getAccessRestrictionAudit = () => request('GET', '/subscriber/access-restriction-audit')
 
 // APNs
 export const getAPNs = () => request('GET', '/apn')

@@ -250,8 +250,6 @@ func (h *Handlers) buildSubscriptionData(ctx context.Context, sub *models.Subscr
 			}
 		}
 
-		applyCIoTConfig(&apnCfg, a)
-
 		profile.APNConfiguration = append(profile.APNConfiguration, apnCfg)
 	}
 	sd.APNConfigurationProfile = profile
@@ -403,38 +401,4 @@ func boolToPreemption(b *bool, def bool) int32 {
 		return 0
 	}
 	return 1
-}
-
-// applyCIoTConfig copies APN-level CIoT/NIDD subscription fields from the
-// stored *models.APN into apnCfg, following the presence rules in TS 29.272
-// §7.3.204-209/§7.3.222: nothing is populated unless CIoTEnabled is set, so a
-// CIoT-disabled APN behaves as an ordinary EPS APN. Preferred-Data-Mode
-// applies independently of Non-IP PDN (spec NOTE 3 under §7.3.209); SCEF-ID/
-// Realm/RDS only apply when Non-IP PDN is enabled with the SCEF-based
-// delivery mechanism.
-func applyCIoTConfig(apnCfg *APNConfiguration, a *models.APN) {
-	if a.CIoTEnabled == nil || !*a.CIoTEnabled {
-		return
-	}
-	if a.NonIPPDN != nil && *a.NonIPPDN {
-		apnCfg.NonIPPDN = true
-		if a.NIDDMechanism != nil {
-			apnCfg.NIDDMechanism = int32(*a.NIDDMechanism)
-		}
-		if apnCfg.NIDDMechanism == models.NIDDMechanismSCEFBased {
-			if a.NIDDScefID != nil {
-				apnCfg.SCEFID = *a.NIDDScefID
-			}
-			if a.NIDDScefRealm != nil {
-				apnCfg.SCEFRealm = *a.NIDDScefRealm
-			}
-		}
-		if a.NIDDRDS != nil {
-			apnCfg.RDSSet = true
-			apnCfg.RDSIndicator = int32(*a.NIDDRDS)
-		}
-	}
-	if a.NIDDPreferredDataMode != nil {
-		apnCfg.PreferredDataMode = uint32(*a.NIDDPreferredDataMode)
-	}
 }

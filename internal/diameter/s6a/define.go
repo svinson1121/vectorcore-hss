@@ -20,17 +20,6 @@ const (
 	avpSMSRegisterRequest        = uint32(1648)
 	avpMaximumUEAvailabilityTime = uint32(3329)
 
-	// CIoT/NIDD APN-Configuration AVPs (3GPP TS 29.272 §7.3.204-209, §7.3.222;
-	// SCEF-ID per TS 29.336). Not present in go-diameter's avp package, so
-	// defined locally like the other 3GPP AVPs above. All use the V-bit only
-	// (M-bit must not be set) per their AVP flag rules.
-	avpNonIPPDNTypeIndicator      = uint32(1681)
-	avpNonIPDataDeliveryMechanism = uint32(1682)
-	avpSCEFRealm                  = uint32(1684)
-	avpPreferredDataMode          = uint32(1686)
-	avpRDSIndicator               = uint32(1697)
-	avpSCEFID                     = uint32(3125)
-
 	SMSRegistrationRequired     = int32(0)
 	SMSRegistrationNotPreferred = int32(1)
 	SMSRegistrationNoPreference = int32(2)
@@ -110,18 +99,6 @@ type APNConfiguration struct {
 	// this APN (3GPP TS 29.272 §7.3.5, AVP 848). Empty means dynamic
 	// allocation; the AVP is then omitted.
 	ServedPartyIPAddress string
-
-	// CIoT/NIDD fields (TS 29.272 §7.3.204-209, §7.3.222). All are only
-	// populated when the APN has CIoT features enabled; see
-	// buildSubscriptionData in ulr.go and appendSubscriptionDataAVPs in
-	// subdata.go for the emission/presence rules.
-	NonIPPDN          bool  // Non-IP-PDN-Type-Indicator; only set when true (omitted otherwise, default FALSE)
-	NIDDMechanism     int32 // Non-IP-Data-Delivery-Mechanism; only emitted when NonIPPDN is true
-	SCEFID            string
-	SCEFRealm         string
-	RDSSet            bool // whether RDS-Indicator should be emitted at all
-	RDSIndicator      int32
-	PreferredDataMode uint32 // Preferred-Data-Mode bitmask; 0 = omit
 }
 
 type APNConfigurationProfile struct {
