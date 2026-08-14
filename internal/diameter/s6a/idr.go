@@ -19,7 +19,7 @@ const cmdIDR = uint32(319)
 // the subscriber. Call this after updating a subscriber's profile so the MME
 // gets the new data without requiring a fresh ULR.
 func (h *Handlers) SendIDR(imsi string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), h.timeout)
 	defer cancel()
 
 	sub, err := h.store.GetSubscriberByIMSI(ctx, imsi)

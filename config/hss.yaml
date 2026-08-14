@@ -28,6 +28,24 @@ database:
   pool_size: 30
   pool_idle: 10
   pool_recycle: 300
+  connect_timeout: 5   # seconds; bounds how long establishing a new connection may take
+
+# Admission control bounds how many S6a and Gx handler executions may run
+# concurrently, independent of each other, so a burst of S6a AIR/ULR
+# requests (e.g. a mass eNB/MME reconnect) can't starve the shared database
+# pool badly enough to time out a concurrent Gx CCR-I. Values are a share of
+# database.pool_size, not an additional pool - leave headroom below pool_size
+# for other interfaces (Cx, Sh, SWx, Rx, ...) and driver overhead.
+admission:
+  s6a_max_concurrent: 15
+  gx_max_concurrent: 8
+
+# Per-application-family database context deadline for Diameter handlers.
+# Both default to 5s (unchanged behavior); lowering gx_timeout lets a CCR-I
+# fail fast during an S6a burst instead of queuing for the full duration.
+timeouts:
+  s6a_timeout: 5
+  gx_timeout: 5
 
 logging:
   # Supported levels: debug, info, warn, error

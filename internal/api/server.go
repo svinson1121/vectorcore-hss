@@ -32,10 +32,12 @@ type IDRSender interface {
 	SendIDRByIMSI(ctx context.Context, imsi string) error
 }
 
-// CacheInvalidator allows the API to evict subscriber cache entries when a
-// subscriber record is modified, ensuring Diameter handlers see fresh data.
+// CacheInvalidator allows the API to evict subscriber and APN cache entries
+// when the underlying record is modified, ensuring Diameter handlers see
+// fresh data instead of a stale in-process cache entry.
 type CacheInvalidator interface {
 	InvalidateCache(imsi string)
+	InvalidateAPNCache(apnID int)
 }
 
 // ConnectedPeer describes a directly connected Diameter peer.

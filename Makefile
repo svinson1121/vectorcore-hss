@@ -1,7 +1,7 @@
-.PHONY: build clean deps fuzz install uninstall ui dev-ui
+.PHONY: build clean deps fuzz install uninstall ui dev-ui diamtest
 
 BINARY=hss
-APP_VERSION=1.1.0
+APP_VERSION=1.2.0
 API_VERSION=1.4.1
 VERSION_PKG=github.com/svinson1121/vectorcore-hss/internal/version
 GO_LDFLAGS=-X $(VERSION_PKG).AppVersion=$(APP_VERSION) -X $(VERSION_PKG).APIVersion=$(API_VERSION)
@@ -21,6 +21,10 @@ ui: ## Build the React UI (requires Node.js / npm)
 
 dev-ui: ## Start Vite dev server (proxies API to localhost:8080)
 	cd web && npm install && npm run dev
+
+diamtest: ## Build the Diameter test/load client (air/ulr/pur/suite/load/storm)
+	mkdir -p bin
+	go build -o bin/diamtest ./cmd/diamtest
 
 deps:
 	go mod tidy

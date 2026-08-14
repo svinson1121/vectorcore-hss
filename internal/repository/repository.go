@@ -23,6 +23,10 @@ type Repository interface {
 
 	// APN
 	GetAPNByID(ctx context.Context, apnID int) (*models.APN, error)
+	// GetAPNsByIDs batches lookup for multiple APN IDs into one query, used
+	// by ULR to avoid an N+1 query per subscriber APN. Order is not
+	// guaranteed to match ids; missing IDs are simply absent from the result.
+	GetAPNsByIDs(ctx context.Context, ids []int) ([]models.APN, error)
 
 	// Subscriber
 	GetSubscriberByIMSI(ctx context.Context, imsi string) (*models.Subscriber, error)
@@ -64,6 +68,10 @@ type Repository interface {
 
 	// Subscriber Routing (static IP assignment)
 	GetSubscriberRoutingBySubscriberAndAPN(ctx context.Context, subscriberID, apnID int) (*models.SubscriberRouting, error)
+	// GetSubscriberRoutingsBySubscriberAndAPNs batches lookup for a
+	// subscriber's static-IP routing across multiple APNs into one query,
+	// used by ULR to avoid an N+1 query per subscriber APN.
+	GetSubscriberRoutingsBySubscriberAndAPNs(ctx context.Context, subscriberID int, apnIDs []int) ([]models.SubscriberRouting, error)
 
 	// Roaming
 	GetRoamingRuleByMCCMNC(ctx context.Context, mcc, mnc string) (*models.RoamingRules, error)
@@ -84,6 +92,7 @@ type Repository interface {
 
 	// Cache
 	InvalidateCache(imsi string)
+	InvalidateAPNCache(apnID int)
 
 	// GeoRed — snapshot reads (full table scans, used only for resync).
 	ListAllAUC(ctx context.Context) ([]models.AUC, error)

@@ -1,6 +1,8 @@
 package gx
 
 import (
+	"time"
+
 	"github.com/fiorix/go-diameter/v4/diam"
 	"github.com/svinson1121/vectorcore-hss/internal/config"
 	"github.com/svinson1121/vectorcore-hss/internal/geored"
@@ -21,9 +23,16 @@ type Handlers struct {
 	peers       PeerLookup
 	pub         geored.TypedPublisher
 	tftHandling string
+	// timeout bounds the database context deadline for each CCR handler
+	// call. Configurable via hss.Timeouts.GxSeconds.
+	timeout time.Duration
 }
 
 func NewHandlers(cfg *config.Config, store repository.Repository, log *zap.Logger, peers PeerLookup) *Handlers {
+	timeout := time.Duration(cfg.Timeouts.GxSeconds) * time.Second
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
 	return &Handlers{
 		store:       store,
 		log:         log,
@@ -32,6 +41,7 @@ func NewHandlers(cfg *config.Config, store repository.Repository, log *zap.Logge
 		peers:       peers,
 		pub:         geored.NoopTypedPublisher{},
 		tftHandling: cfg.PCRF.TFTHandling,
+		timeout:     timeout,
 	}
 }
 

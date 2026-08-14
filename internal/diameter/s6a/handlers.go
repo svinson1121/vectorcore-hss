@@ -47,6 +47,9 @@ type Handlers struct {
 	homeMNC               string
 	allowUndefinedRoaming bool
 	pub                   geored.TypedPublisher
+	// timeout bounds the database context deadline for each handler call
+	// (AIR/ULR/PUR/IDR). Configurable via hss.Timeouts.S6aSeconds.
+	timeout time.Duration
 	// onRegister is called after a successful ULR (LTE attach).
 	// Wired to the S6c alert sender by the server to trigger ALR for
 	// pending Message Waiting Data caused by subscriber absence.
@@ -107,6 +110,10 @@ func (h *Handlers) RecentAuthFailures() []AuthFailure {
 }
 
 func NewHandlers(cfg *config.Config, store repository.Repository, log *zap.Logger, peers PeerLookup) *Handlers {
+	timeout := time.Duration(cfg.Timeouts.S6aSeconds) * time.Second
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
 	return &Handlers{
 		store:                 store,
 		log:                   log,
@@ -120,6 +127,7 @@ func NewHandlers(cfg *config.Config, store repository.Repository, log *zap.Logge
 		homeMNC:               cfg.HSS.MNC,
 		allowUndefinedRoaming: cfg.Roaming.AllowUndefinedNetworks,
 		pub:                   geored.NoopTypedPublisher{},
+		timeout:               timeout,
 	}
 }
 

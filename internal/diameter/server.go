@@ -15,6 +15,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/svinson1121/vectorcore-hss/internal/config"
+	"github.com/svinson1121/vectorcore-hss/internal/diameter/avputil"
 	"github.com/svinson1121/vectorcore-hss/internal/diameter/basedict"
 	"github.com/svinson1121/vectorcore-hss/internal/diameter/cx"
 	"github.com/svinson1121/vectorcore-hss/internal/diameter/gx"
@@ -36,6 +37,13 @@ const (
 	vendor3GPP      = uint32(10415)
 	appIDS6a        = uint32(16777251)
 	diamProductName = "VectorCore HSS"
+
+	// admissionAcquireTimeout bounds how long a handler waits for an
+	// admission-control slot before failing fast with DIAMETER_TOO_BUSY.
+	// Kept comfortably under the 5s per-handler DB context timeout so a
+	// rejected request returns quickly rather than adding queueing delay on
+	// top of it.
+	admissionAcquireTimeout = 3 * time.Second
 )
 
 type Server struct {
@@ -49,6 +57,18 @@ type Server struct {
 	gxH   *gx.Handlers
 	ct    *ConnTracker
 	pt    *PeerTracker
+}
+
+// tooBusyAnswer builds a DIAMETER_TOO_BUSY (3004) answer for a request that
+// couldn't get an admission-control slot in time. Session-Id is best-effort:
+// if the request can't be unmarshalled it's sent empty, which is still a
+// valid (if less useful) answer.
+func tooBusyAnswer(msg *diam.Message, originHost, originRealm string) *diam.Message {
+	var hdr struct {
+		SessionID datatype.UTF8String `avp:"Session-Id"`
+	}
+	_ = msg.Unmarshal(&hdr)
+	return avputil.ConstructBaseFailureAnswer(msg, hdr.SessionID, originHost, originRealm, diam.TooBusy)
 }
 
 // Peers returns the peer tracker so callers (e.g. the API layer) can list
@@ -167,6 +187,14 @@ func NewServer(cfg *config.Config, store repository.Repository, log *zap.Logger)
 	rxH := rx.NewHandlers(cfg, store, log, ct)
 	slhH := slh.NewHandlers(cfg, store, log)
 	zhH := zh.NewHandlers(cfg, store, log)
+	// Admission control: bounds how many S6a and Gx handler executions may
+	// run concurrently, independent of each other. This is what prevents a
+	// burst of S6a AIR/ULR requests (e.g. from a mass eNB/MME reconnect)
+	// from starving the shared database pool badly enough that a concurrent
+	// Gx CCR-I times out — see admission.go for details.
+	s6aSem := newAdmission("s6a", cfg.Admission.S6aMaxConcurrent)
+	gxSem := newAdmission("gx", cfg.Admission.GxMaxConcurrent)
+
 	wrap := func(name string, fn func(diam.Conn, *diam.Message) (*diam.Message, error)) diam.HandlerFunc {
 		return func(conn diam.Conn, msg *diam.Message) {
 			// Track the peer by its OriginHost so CLR can find it later.
@@ -198,9 +226,27 @@ func NewServer(cfg *config.Config, store repository.Repository, log *zap.Logger)
 		}
 	}
 
-	machine.HandleFunc(diam.AIR, wrap("AIR", h.AIR))
-	machine.HandleFunc(diam.ULR, wrap("ULR", h.ULR))
-	machine.HandleFunc(diam.PUR, wrap("PUR", h.PUR))
+	// wrapAdmit gates fn behind sem before running it through wrap. If no
+	// slot is free within admissionAcquireTimeout, it fails fast with
+	// DIAMETER_TOO_BUSY (3004) instead of letting the request queue
+	// indefinitely for a database connection that may not free up in time.
+	wrapAdmit := func(name string, sem *admission, fn func(diam.Conn, *diam.Message) (*diam.Message, error)) diam.HandlerFunc {
+		return wrap(name, func(conn diam.Conn, msg *diam.Message) (*diam.Message, error) {
+			ctx, cancel := context.WithTimeout(context.Background(), admissionAcquireTimeout)
+			defer cancel()
+			if !sem.acquire(ctx) {
+				metrics.AdmissionRejectedTotal.WithLabelValues(sem.name).Inc()
+				log.Warn("diameter: admission rejected (too busy)", zap.String("cmd", name), zap.String("app", sem.name))
+				return tooBusyAnswer(msg, cfg.HSS.OriginHost, cfg.HSS.OriginRealm), nil
+			}
+			defer sem.release()
+			return fn(conn, msg)
+		})
+	}
+
+	machine.HandleFunc(diam.AIR, wrapAdmit("AIR", s6aSem, h.AIR))
+	machine.HandleFunc(diam.ULR, wrapAdmit("ULR", s6aSem, h.ULR))
+	machine.HandleFunc(diam.PUR, wrapAdmit("PUR", s6aSem, h.PUR))
 	machine.HandleFunc("ECR", wrap("ECR", s13H.ECR))
 	machine.HandleFunc("UAR", wrap("UAR", cxH.UAR))
 	machine.HandleFunc("SAR", wrap("SAR", func(conn diam.Conn, msg *diam.Message) (*diam.Message, error) {
@@ -231,12 +277,12 @@ func NewServer(cfg *config.Config, store repository.Repository, log *zap.Logger)
 	machine.HandleFunc("PNA", func(conn diam.Conn, msg *diam.Message) {
 		shH.PNA(conn, msg)
 	})
-	machine.HandleFunc("CCR", wrap("CCR", gxH.CCR))
+	machine.HandleFunc("CCR", wrapAdmit("CCR", gxSem, gxH.CCR))
 	machine.HandleFunc("AAR", wrap("AAR", rxH.AAR))
 	machine.HandleFunc("STR", wrap("STR", rxH.STR))
 	// LRR is go-diameter's dispatch alias; TS 29.173 names this RIR/RIA.
 	machine.HandleFunc("LRR", wrap("RIR", slhH.LRR))
-	machine.HandleFunc("NOR", wrap("NOR", h.NOR))
+	machine.HandleFunc("NOR", wrapAdmit("NOR", s6aSem, h.NOR))
 	machine.HandleFunc("SIR", wrap("SRI-SM", s6cH.SRISR))
 	machine.HandleFunc("RDR", wrap("RSDS", s6cH.RDSMR))
 

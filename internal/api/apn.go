@@ -125,6 +125,9 @@ func (s *Server) updateAPN(ctx context.Context, input *APNUpdateInput) (*APNOutp
 	if err := s.db.WithContext(ctx).Save(input.Body).Error; err != nil {
 		return nil, huma.Error500InternalServerError("db error", err)
 	}
+	if s.cache != nil {
+		s.cache.InvalidateAPNCache(input.ID)
+	}
 	if s.geored != nil {
 		s.geored.PublishOAMPut(geored.EventAPNPut, input.Body)
 	}
@@ -151,6 +154,9 @@ func (s *Server) deleteAPN(ctx context.Context, input *APNIDInput) (*struct{}, e
 	}
 	if err := s.db.WithContext(ctx).Delete(&models.APN{}, input.ID).Error; err != nil {
 		return nil, huma.Error500InternalServerError("db error", err)
+	}
+	if s.cache != nil {
+		s.cache.InvalidateAPNCache(input.ID)
 	}
 	if s.geored != nil {
 		s.geored.PublishOAMDel(geored.EventAPNDel, input.ID)

@@ -214,6 +214,7 @@ func (s *s6cStore) GetAlgorithmProfile(_ context.Context, _ int64) (*models.Algo
 func (s *s6cStore) GetAPNByID(_ context.Context, _ int) (*models.APN, error) {
 	return nil, repository.ErrNotFound
 }
+func (s *s6cStore) GetAPNsByIDs(_ context.Context, _ []int) ([]models.APN, error) { return nil, nil }
 func (s *s6cStore) UpdateServingMME(_ context.Context, _ string, _ *repository.ServingMMEUpdate) error {
 	return nil
 }
@@ -284,6 +285,9 @@ func (s *s6cStore) GetServingAPNByUEIP(_ context.Context, _ string) (*models.Ser
 func (s *s6cStore) GetSubscriberRoutingBySubscriberAndAPN(_ context.Context, _, _ int) (*models.SubscriberRouting, error) {
 	return nil, repository.ErrNotFound
 }
+func (s *s6cStore) GetSubscriberRoutingsBySubscriberAndAPNs(_ context.Context, _ int, _ []int) ([]models.SubscriberRouting, error) {
+	return nil, nil
+}
 func (s *s6cStore) GetRoamingRuleByMCCMNC(_ context.Context, _, _ string) (*models.RoamingRules, error) {
 	return nil, repository.ErrNotFound
 }
@@ -297,6 +301,7 @@ func (s *s6cStore) UpsertIMSIIMEIHistory(_ context.Context, _, _, _, _ string, _
 	return nil
 }
 func (s *s6cStore) InvalidateCache(_ string)                           {}
+func (s *s6cStore) InvalidateAPNCache(_ int)                           {}
 func (s *s6cStore) ListAllAUC(_ context.Context) ([]models.AUC, error) { return nil, nil }
 func (s *s6cStore) ListAllSubscribers(_ context.Context) ([]models.Subscriber, error) {
 	return nil, nil

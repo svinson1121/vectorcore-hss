@@ -24,6 +24,7 @@ type Store struct {
 	eirNoMatchResponse int
 	subCache           sync.Map
 	aucCache           sync.Map
+	apnCache           sync.Map
 }
 
 var _ repository.Repository = (*Store)(nil)
@@ -146,7 +147,23 @@ func (s *Store) ResyncSQN(ctx context.Context, aucID int, newSQN int64) error {
 	return s.db.WithContext(ctx).Model(&models.AUC{}).Where("auc_id = ?", aucID).Update("sqn", newSQN).Error
 }
 
+// apnCacheTTL is longer than subCache/aucCache's 60s: APN records are
+// operator-managed config (APN-AMBR, QCI, charging characteristics, ...)
+// that changes far less often than subscriber runtime state, and every
+// write path invalidates the affected entry immediately via
+// InvalidateAPNCache, so staleness beyond the TTL is bounded regardless.
+const apnCacheTTL = 5 * time.Minute
+
 func (s *Store) GetAPNByID(ctx context.Context, apnID int) (*models.APN, error) {
+	if v, ok := s.apnCache.Load(apnID); ok {
+		e := v.(*cacheEntry)
+		if time.Now().Before(e.expiresAt) {
+			metrics.SubscriberCacheHits.WithLabelValues("apn", "hit").Inc()
+			return e.value.(*models.APN), nil
+		}
+		s.apnCache.Delete(apnID)
+	}
+	metrics.SubscriberCacheHits.WithLabelValues("apn", "miss").Inc()
 	var apn models.APN
 	if err := s.db.WithContext(ctx).First(&apn, apnID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -154,7 +171,58 @@ func (s *Store) GetAPNByID(ctx context.Context, apnID int) (*models.APN, error) 
 		}
 		return nil, err
 	}
+	s.apnCache.Store(apnID, &cacheEntry{value: &apn, expiresAt: time.Now().Add(apnCacheTTL)})
 	return &apn, nil
+}
+
+// GetAPNsByIDs serves as many ids as possible from apnCache and issues a
+// single batched query for the remainder, so a ULR for a subscriber whose
+// APNs were already resolved recently (the common case under sustained
+// traffic) touches the database not at all.
+func (s *Store) GetAPNsByIDs(ctx context.Context, ids []int) ([]models.APN, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	out := make([]models.APN, 0, len(ids))
+	var misses []int
+	now := time.Now()
+	for _, id := range ids {
+		v, ok := s.apnCache.Load(id)
+		if !ok {
+			misses = append(misses, id)
+			continue
+		}
+		e := v.(*cacheEntry)
+		if now.After(e.expiresAt) {
+			s.apnCache.Delete(id)
+			misses = append(misses, id)
+			continue
+		}
+		out = append(out, *e.value.(*models.APN))
+	}
+	metrics.SubscriberCacheHits.WithLabelValues("apn", "hit").Add(float64(len(out)))
+	metrics.SubscriberCacheHits.WithLabelValues("apn", "miss").Add(float64(len(misses)))
+	if len(misses) == 0 {
+		return out, nil
+	}
+	var fetched []models.APN
+	if err := s.db.WithContext(ctx).Where("apn_id IN ?", misses).Find(&fetched).Error; err != nil {
+		return nil, err
+	}
+	for i := range fetched {
+		a := fetched[i]
+		s.apnCache.Store(a.APNID, &cacheEntry{value: &a, expiresAt: now.Add(apnCacheTTL)})
+		out = append(out, a)
+	}
+	return out, nil
+}
+
+// InvalidateAPNCache must be called by every APN write path (create,
+// update, delete) so a config change made via the REST API is visible to
+// the next S6a/Gx request rather than serving a stale apnCache entry for up
+// to apnCacheTTL.
+func (s *Store) InvalidateAPNCache(apnID int) {
+	s.apnCache.Delete(apnID)
 }
 
 func (s *Store) GetSubscriberByIMSI(ctx context.Context, imsi string) (*models.Subscriber, error) {
@@ -508,6 +576,17 @@ func (s *Store) GetSubscriberRoutingBySubscriberAndAPN(ctx context.Context, subs
 		return nil, err
 	}
 	return &r, nil
+}
+
+func (s *Store) GetSubscriberRoutingsBySubscriberAndAPNs(ctx context.Context, subscriberID int, apnIDs []int) ([]models.SubscriberRouting, error) {
+	if len(apnIDs) == 0 {
+		return nil, nil
+	}
+	var routings []models.SubscriberRouting
+	if err := s.db.WithContext(ctx).Where("subscriber_id = ? AND apn_id IN ?", subscriberID, apnIDs).Find(&routings).Error; err != nil {
+		return nil, err
+	}
+	return routings, nil
 }
 
 func (s *Store) GetRoamingRuleByMCCMNC(ctx context.Context, mcc, mnc string) (*models.RoamingRules, error) {

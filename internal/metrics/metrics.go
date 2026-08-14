@@ -95,15 +95,33 @@ var (
 		Name:      "imported_total",
 		Help:      "Cumulative number of TAC records written (inserted or updated) via the CSV import API.",
 	})
+
+	// AdmissionInFlight tracks how many handler executions currently hold an
+	// admission-control slot, split by application ("s6a"/"gx").
+	AdmissionInFlight = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "hss",
+		Subsystem: "admission",
+		Name:      "in_flight",
+		Help:      "Number of Diameter handler executions currently holding an admission-control slot, split by application.",
+	}, []string{"app"})
+
+	// AdmissionRejectedTotal counts requests that failed to acquire an
+	// admission-control slot before their deadline, split by application.
+	AdmissionRejectedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "hss",
+		Subsystem: "admission",
+		Name:      "rejected_total",
+		Help:      "Total number of Diameter requests rejected (DIAMETER_TOO_BUSY) because no admission-control slot was free before the deadline, split by application.",
+	}, []string{"app"})
 )
 
 // DBPoolCollector is a Prometheus collector that reads live connection pool
 // stats from a *sql.DB and exposes them as gauges.
 type DBPoolCollector struct {
-	db   *sql.DB
-	open *prometheus.Desc
-	inUse *prometheus.Desc
-	idle  *prometheus.Desc
+	db           *sql.DB
+	open         *prometheus.Desc
+	inUse        *prometheus.Desc
+	idle         *prometheus.Desc
 	waitCount    *prometheus.Desc
 	waitDuration *prometheus.Desc
 }

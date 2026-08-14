@@ -60,6 +60,8 @@ func main() {
 		err = runSuite(cfg, args[1:])
 	case "load":
 		err = runLoad(cfg, args[1:])
+	case "storm":
+		err = runStorm(cfg, args[1:])
 	default:
 		usage()
 		os.Exit(1)
@@ -132,6 +134,33 @@ func runLoad(cfg *testcases.Config, args []string) error {
 	return testcases.RunLoad(cfg, lc)
 }
 
+func runStorm(cfg *testcases.Config, args []string) error {
+	fs := flag.NewFlagSet("storm", flag.ExitOnError)
+	api := fs.String("api", "http://localhost:8080", "HSS OAM REST API base URL (used for test-data provisioning and /metrics polling)")
+	clients := fs.Int("clients", 200, "Number of separate Diameter connections to open concurrently (200-500 reproduces a mass eNB/MME reconnect)")
+	rampUp := fs.Duration("rampup", 0, "Spread client connection start times across this window (0 = all at once, closest to a real eNB restart)")
+	hold := fs.Duration("hold", 30*time.Second, "How long to keep sending CCR-I traffic after all clients have attached")
+	ccrRate := fs.Int("ccr-rate", 10, "Gx CCR-I requests per second injected concurrently with the AIR/ULR storm (0 = disable)")
+	imsiBase := fs.String("imsi-base", "001010000000001", "Base IMSI for provisioned test subscribers (15-digit numeric)")
+	apn := fs.String("apn", "loadtest-apn", "Name of the synthetic test APN to provision")
+	reqTimeout := fs.Duration("timeout", 5*time.Second, "Per-request timeout")
+	noCleanup := fs.Bool("no-cleanup", false, "Leave provisioned test data in place after the run (for debugging a failed run)")
+	fs.Parse(args) //nolint
+
+	sc := &testcases.StormConfig{
+		APIAddr:    *api,
+		Clients:    *clients,
+		RampUp:     *rampUp,
+		HoldFor:    *hold,
+		CCRRate:    *ccrRate,
+		ReqTimeout: *reqTimeout,
+		IMSIBase:   *imsiBase,
+		APNName:    *apn,
+		NoCleanup:  *noCleanup,
+	}
+	return testcases.RunStorm(cfg, sc)
+}
+
 func runSuite(cfg *testcases.Config, args []string) error {
 	fs := flag.NewFlagSet("suite", flag.ExitOnError)
 	config := fs.String("config", "cmd/diamtest/testdata/suite.yaml", "path to test suite YAML")
@@ -147,7 +176,8 @@ Commands:
   ulr    Send Update-Location-Request
   pur    Send Purge-UE-Request
   suite  Run a YAML-defined test suite
-  load   Run a Diameter load test
+  load   Run a Diameter load test (many requests over one shared connection)
+  storm  Run a reconnect-storm test (many separate connections + concurrent Gx CCR-I)
 
 Global flags (before the command):
   --hss          HSS address        (default: localhost:3868)
@@ -163,7 +193,8 @@ Examples:
   diamtest --mcc 001 --mnc 01 ulr --imsi 001010000000001
   diamtest --mcc 001 --mnc 01 pur --imsi 001010000000001
   diamtest suite --config cmd/diamtest/testdata/suite.yaml
-  diamtest load --workers 10 --duration 60s --command air --imsi-base 001010000000001 --imsi-count 1000`)
+  diamtest load --workers 10 --duration 60s --command air --imsi-base 001010000000001 --imsi-count 1000
+  diamtest storm --clients 500 --rampup 2s --hold 30s --ccr-rate 10 --api http://localhost:8080`)
 }
 
 func buildLogger(verbose bool) *zap.Logger {

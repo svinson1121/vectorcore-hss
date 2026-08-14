@@ -86,6 +86,22 @@ func (s *s6aTestStore) GetAPNByID(_ context.Context, apnID int) (*models.APN, er
 	return nil, repository.ErrNotFound
 }
 
+func (s *s6aTestStore) GetAPNsByIDs(_ context.Context, ids []int) ([]models.APN, error) {
+	var out []models.APN
+	for _, id := range ids {
+		if s.apns != nil {
+			if a, ok := s.apns[id]; ok {
+				out = append(out, *a)
+				continue
+			}
+		}
+		if s.apn != nil && s.apn.APNID == id {
+			out = append(out, *s.apn)
+		}
+	}
+	return out, nil
+}
+
 func (s *s6aTestStore) GetIMSSubscriberByMSISDN(_ context.Context, _ string) (*models.IMSSubscriber, error) {
 	return nil, repository.ErrNotFound
 }
@@ -187,6 +203,19 @@ func (s *s6aTestStore) GetSubscriberRoutingBySubscriberAndAPN(_ context.Context,
 	return nil, repository.ErrNotFound
 }
 
+func (s *s6aTestStore) GetSubscriberRoutingsBySubscriberAndAPNs(_ context.Context, _ int, apnIDs []int) ([]models.SubscriberRouting, error) {
+	var out []models.SubscriberRouting
+	if s.routing == nil {
+		return out, nil
+	}
+	for _, id := range apnIDs {
+		if r, ok := s.routing[id]; ok {
+			out = append(out, *r)
+		}
+	}
+	return out, nil
+}
+
 func (s *s6aTestStore) GetRoamingRuleByMCCMNC(_ context.Context, _, _ string) (*models.RoamingRules, error) {
 	return nil, repository.ErrNotFound
 }
@@ -216,6 +245,7 @@ func (s *s6aTestStore) GetMWDForIMSI(_ context.Context, _ string) ([]models.Mess
 func (s *s6aTestStore) DeleteMWD(_ context.Context, _, _ string) error { return nil }
 
 func (s *s6aTestStore) InvalidateCache(_ string) {}
+func (s *s6aTestStore) InvalidateAPNCache(_ int) {}
 
 func (s *s6aTestStore) ListAllAUC(_ context.Context) ([]models.AUC, error) { return nil, nil }
 

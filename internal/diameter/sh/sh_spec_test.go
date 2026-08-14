@@ -224,6 +224,7 @@ func (s *shStore) GetAlgorithmProfile(_ context.Context, _ int64) (*models.Algor
 func (s *shStore) GetAPNByID(_ context.Context, _ int) (*models.APN, error) {
 	return nil, repository.ErrNotFound
 }
+func (s *shStore) GetAPNsByIDs(_ context.Context, _ []int) ([]models.APN, error) { return nil, nil }
 func (s *shStore) GetSubscriberByIMSI(_ context.Context, _ string) (*models.Subscriber, error) {
 	return nil, repository.ErrNotFound
 }
@@ -291,6 +292,9 @@ func (s *shStore) GetServingAPNByUEIP(_ context.Context, _ string) (*models.Serv
 func (s *shStore) GetSubscriberRoutingBySubscriberAndAPN(_ context.Context, _, _ int) (*models.SubscriberRouting, error) {
 	return nil, repository.ErrNotFound
 }
+func (s *shStore) GetSubscriberRoutingsBySubscriberAndAPNs(_ context.Context, _ int, _ []int) ([]models.SubscriberRouting, error) {
+	return nil, nil
+}
 func (s *shStore) GetRoamingRuleByMCCMNC(_ context.Context, _, _ string) (*models.RoamingRules, error) {
 	return nil, repository.ErrNotFound
 }
@@ -311,6 +315,7 @@ func (s *shStore) GetMWDForIMSI(_ context.Context, _ string) ([]models.MessageWa
 }
 func (s *shStore) DeleteMWD(_ context.Context, _, _ string) error { return nil }
 func (s *shStore) InvalidateCache(_ string)                       {}
+func (s *shStore) InvalidateAPNCache(_ int)                       {}
 func (s *shStore) ListAllAUC(_ context.Context) ([]models.AUC, error) {
 	return nil, nil
 }

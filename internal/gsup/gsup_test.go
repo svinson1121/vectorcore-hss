@@ -75,6 +75,10 @@ func (m *mockStore) GetAPNByID(_ context.Context, _ int) (*models.APN, error) {
 	return nil, repository.ErrNotFound
 }
 
+func (m *mockStore) GetAPNsByIDs(_ context.Context, _ []int) ([]models.APN, error) {
+	return nil, nil
+}
+
 func (m *mockStore) GetSubscriberByIMSI(_ context.Context, imsi string) (*models.Subscriber, error) {
 	if m.sub != nil && m.sub.IMSI == imsi {
 		return m.sub, nil
@@ -173,6 +177,10 @@ func (m *mockStore) GetSubscriberRoutingBySubscriberAndAPN(_ context.Context, _,
 	return nil, repository.ErrNotFound
 }
 
+func (m *mockStore) GetSubscriberRoutingsBySubscriberAndAPNs(_ context.Context, _ int, _ []int) ([]models.SubscriberRouting, error) {
+	return nil, nil
+}
+
 func (m *mockStore) GetRoamingRuleByMCCMNC(_ context.Context, _, _ string) (*models.RoamingRules, error) {
 	return nil, repository.ErrNotFound
 }
@@ -198,6 +206,7 @@ func (m *mockStore) UpsertIMSIIMEIHistory(_ context.Context, _, _, _, _ string, 
 }
 
 func (m *mockStore) InvalidateCache(_ string) {}
+func (m *mockStore) InvalidateAPNCache(_ int) {}
 
 // GeoRed snapshot reads — not exercised by GSUP tests.
 func (m *mockStore) ListAllAUC(_ context.Context) ([]models.AUC, error) { return nil, nil }

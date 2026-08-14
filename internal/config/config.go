@@ -11,18 +11,41 @@ import (
 )
 
 type Config struct {
-	HSS      HSSConfig      `yaml:"hss"`
-	Database DatabaseConfig `yaml:"database"`
-	Logging  LoggingConfig  `yaml:"logging"`
-	EIR      EIRConfig      `yaml:"eir"`
-	Roaming  RoamingConfig  `yaml:"roaming"`
-	Geored   GeoredConfig   `yaml:"geored"`
-	API      APIConfig      `yaml:"api"`
-	GSUP     GSUPConfig     `yaml:"gsup"`
-	PCRF     PCRFConfig     `yaml:"pcrf"`
-	FiveGC   FiveGCConfig   `yaml:"5gc"`
-	UDM      UDMConfig      `yaml:"udm"`
-	PCF      PCFConfig      `yaml:"pcf"`
+	HSS       HSSConfig       `yaml:"hss"`
+	Database  DatabaseConfig  `yaml:"database"`
+	Logging   LoggingConfig   `yaml:"logging"`
+	EIR       EIRConfig       `yaml:"eir"`
+	Roaming   RoamingConfig   `yaml:"roaming"`
+	Geored    GeoredConfig    `yaml:"geored"`
+	API       APIConfig       `yaml:"api"`
+	GSUP      GSUPConfig      `yaml:"gsup"`
+	PCRF      PCRFConfig      `yaml:"pcrf"`
+	FiveGC    FiveGCConfig    `yaml:"5gc"`
+	UDM       UDMConfig       `yaml:"udm"`
+	PCF       PCFConfig       `yaml:"pcf"`
+	Admission AdmissionConfig `yaml:"admission"`
+	Timeouts  TimeoutConfig   `yaml:"timeouts"`
+}
+
+// AdmissionConfig bounds how many Diameter handler executions may run
+// concurrently per application family, independent of the shared database
+// connection pool size. This prevents a burst of requests on one interface
+// (e.g. an S6a AIR/ULR storm from a mass eNB reconnect) from starving the
+// pool for other interfaces (e.g. Gx CCR-I) — see internal/diameter/server.go.
+type AdmissionConfig struct {
+	S6aMaxConcurrent int `yaml:"s6a_max_concurrent"`
+	GxMaxConcurrent  int `yaml:"gx_max_concurrent"`
+}
+
+// TimeoutConfig sets the per-application-family deadline for the database
+// work done inside a Diameter handler (context.WithTimeout). Both default
+// to 5s, matching the previously hardcoded value, so behavior is unchanged
+// until explicitly tuned. Giving Gx a shorter timeout than S6a lets a CCR-I
+// fail fast (so the PGW's own retry logic kicks in promptly) instead of
+// queuing for the full duration behind an S6a burst.
+type TimeoutConfig struct {
+	S6aSeconds int `yaml:"s6a_timeout"`
+	GxSeconds  int `yaml:"gx_timeout"`
 }
 
 type SBIClientConfig struct {
@@ -192,13 +215,22 @@ type DatabaseConfig struct {
 	MaxOpenConns    int    `yaml:"pool_size"`
 	MaxIdleConns    int    `yaml:"pool_idle"`
 	ConnMaxLifetime int    `yaml:"pool_recycle"`
+	// ConnectTimeout bounds how long establishing a new Postgres connection
+	// may take (libpq connect_timeout, seconds) before failing, so a
+	// saturated/unreachable database doesn't leave a goroutine blocked
+	// indefinitely on connection setup. 0 defaults to 5s in DSN().
+	ConnectTimeout int `yaml:"connect_timeout"`
 }
 
 func (d DatabaseConfig) DSN() (string, error) {
 	switch d.Type {
 	case "postgresql", "postgres":
-		return fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable client_encoding=UTF8",
-			d.Host, d.Port, d.Username, d.Password, d.Database), nil
+		connectTimeout := d.ConnectTimeout
+		if connectTimeout <= 0 {
+			connectTimeout = 5
+		}
+		return fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable client_encoding=UTF8 connect_timeout=%d",
+			d.Host, d.Port, d.Username, d.Password, d.Database, connectTimeout), nil
 	case "sqlite":
 		return d.Database, nil
 	default:
@@ -249,16 +281,18 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("config: read %s: %w", path, err)
 	}
 	cfg := &Config{
-		HSS:      HSSConfig{BindAddress: "0.0.0.0", BindPort: 3868, DWRInterval: 30},
-		Database: DatabaseConfig{Port: 5432, MaxOpenConns: 30, MaxIdleConns: 10, ConnMaxLifetime: 300},
-		Logging:  LoggingConfig{Level: "info"},
-		EIR:      EIRConfig{NoMatchResponse: 2, IMSIIMEILogging: true, TACDBEnabled: true},
-		Roaming:  RoamingConfig{AllowUndefinedNetworks: true},
-		API:      APIConfig{Enabled: true, BindAddress: "0.0.0.0", BindPort: 8080},
-		GSUP:     GSUPConfig{Enabled: false, BindAddress: "::", BindPort: 4222},
-		PCRF:     PCRFConfig{TFTHandling: "standard"},
-		UDM:      UDMConfig{Enabled: false, BindAddress: "::", BindPort: 7777, SBIClient: SBIClientConfig{Mode: "direct", ReconnectHoldoffTime: 2 * time.Second}},
-		PCF:      PCFConfig{Enabled: false, BindAddress: "::", BindPort: 7778, SBIClient: SBIClientConfig{Mode: "direct", ReconnectHoldoffTime: 2 * time.Second}},
+		HSS:       HSSConfig{BindAddress: "0.0.0.0", BindPort: 3868, DWRInterval: 30},
+		Database:  DatabaseConfig{Port: 5432, MaxOpenConns: 30, MaxIdleConns: 10, ConnMaxLifetime: 300},
+		Logging:   LoggingConfig{Level: "info"},
+		EIR:       EIRConfig{NoMatchResponse: 2, IMSIIMEILogging: true, TACDBEnabled: true},
+		Roaming:   RoamingConfig{AllowUndefinedNetworks: true},
+		API:       APIConfig{Enabled: true, BindAddress: "0.0.0.0", BindPort: 8080},
+		GSUP:      GSUPConfig{Enabled: false, BindAddress: "::", BindPort: 4222},
+		PCRF:      PCRFConfig{TFTHandling: "standard"},
+		UDM:       UDMConfig{Enabled: false, BindAddress: "::", BindPort: 7777, SBIClient: SBIClientConfig{Mode: "direct", ReconnectHoldoffTime: 2 * time.Second}},
+		PCF:       PCFConfig{Enabled: false, BindAddress: "::", BindPort: 7778, SBIClient: SBIClientConfig{Mode: "direct", ReconnectHoldoffTime: 2 * time.Second}},
+		Admission: AdmissionConfig{S6aMaxConcurrent: 15, GxMaxConcurrent: 8},
+		Timeouts:  TimeoutConfig{S6aSeconds: 5, GxSeconds: 5},
 	}
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("config: parse: %w", err)

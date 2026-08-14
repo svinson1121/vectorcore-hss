@@ -2,7 +2,6 @@ package s6a
 
 import (
 	"context"
-	"time"
 
 	"github.com/fiorix/go-diameter/v4/diam"
 	"github.com/fiorix/go-diameter/v4/diam/avp"
@@ -21,7 +20,7 @@ func (h *Handlers) PUR(conn diam.Conn, msg *diam.Message) (*diam.Message, error)
 	}
 
 	imsi := string(pur.UserName)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), h.timeout)
 	defer cancel()
 
 	_, err := h.store.GetSubscriberByIMSI(ctx, imsi)

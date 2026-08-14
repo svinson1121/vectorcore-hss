@@ -25,7 +25,7 @@ func (h *Handlers) ULR(conn diam.Conn, msg *diam.Message) (*diam.Message, error)
 	}
 
 	imsi := string(ulr.UserName)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), h.timeout)
 	defer cancel()
 
 	sub, err := h.store.GetSubscriberByIMSI(ctx, imsi)
@@ -209,6 +209,30 @@ func (h *Handlers) buildSubscriptionData(ctx context.Context, sub *models.Subscr
 		}
 	}
 
+	// Parse APN IDs up front and batch-fetch both APN records and
+	// subscriber-routing (static IP) records in two queries total, instead
+	// of two queries per APN — this used to be an N+1 (2N+3 round trips for
+	// a subscriber with N APNs) that showed up as sustained DB load during
+	// bursts of concurrent ULRs (e.g. a mass eNB/MME reconnect).
+	apnIDs := make([]int, 0, len(ordered))
+	for _, idStr := range ordered {
+		if apnID, err := strconv.Atoi(strings.TrimSpace(idStr)); err == nil {
+			apnIDs = append(apnIDs, apnID)
+		}
+	}
+	apnsByID := make(map[int]models.APN, len(apnIDs))
+	if apns, err := h.store.GetAPNsByIDs(ctx, apnIDs); err == nil {
+		for _, a := range apns {
+			apnsByID[a.APNID] = a
+		}
+	}
+	routingByAPNID := make(map[int]models.SubscriberRouting, len(apnIDs))
+	if routings, err := h.store.GetSubscriberRoutingsBySubscriberAndAPNs(ctx, sub.SubscriberID, apnIDs); err == nil {
+		for _, r := range routings {
+			routingByAPNID[r.APNID] = r
+		}
+	}
+
 	// ContextIdentifier in APN-Configuration-Profile must point to the default
 	// APN's ContextIdentifier (3GPP TS 29.272 §7.3.34). The default APN is
 	// always first in ordered, so its ContextIdentifier will be 1.
@@ -218,8 +242,8 @@ func (h *Handlers) buildSubscriptionData(ctx context.Context, sub *models.Subscr
 		if err != nil {
 			continue
 		}
-		a, err := h.store.GetAPNByID(ctx, apnID)
-		if err != nil {
+		a, ok := apnsByID[apnID]
+		if !ok {
 			continue
 		}
 		apnCfg := APNConfiguration{
@@ -244,13 +268,13 @@ func (h *Handlers) buildSubscriptionData(ctx context.Context, sub *models.Subscr
 		// Static per-subscriber/APN IP assignment (subscriber_routing table).
 		// When present it is emitted as Served-Party-IP-Address inside this
 		// APN-Configuration; absence leaves the APN on dynamic allocation.
-		if r, err := h.store.GetSubscriberRoutingBySubscriberAndAPN(ctx, sub.SubscriberID, apnID); err == nil && r != nil && r.IPAddress != nil {
+		if r, ok := routingByAPNID[apnID]; ok && r.IPAddress != nil {
 			if ip := strings.TrimSpace(*r.IPAddress); ip != "" {
 				apnCfg.ServedPartyIPAddress = ip
 			}
 		}
 
-		applyCIoTConfig(&apnCfg, a)
+		applyCIoTConfig(&apnCfg, &a)
 
 		profile.APNConfiguration = append(profile.APNConfiguration, apnCfg)
 	}
