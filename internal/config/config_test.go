@@ -11,6 +11,71 @@ import (
 	"time"
 )
 
+func TestDSNSqliteAddsBusyTimeoutAndWAL(t *testing.T) {
+	d := DatabaseConfig{Type: "sqlite", Database: "/opt/vectorcore/hss.db"}
+	dsn, err := d.DSN()
+	if err != nil {
+		t.Fatalf("DSN() error: %v", err)
+	}
+	if !strings.Contains(dsn, "_busy_timeout=5000") {
+		t.Errorf("DSN() = %q, want it to contain _busy_timeout=5000", dsn)
+	}
+	if !strings.Contains(dsn, "_journal_mode=WAL") {
+		t.Errorf("DSN() = %q, want it to contain _journal_mode=WAL", dsn)
+	}
+	if !strings.Contains(dsn, "_txlock=immediate") {
+		t.Errorf("DSN() = %q, want it to contain _txlock=immediate", dsn)
+	}
+}
+
+func TestDSNSqliteAppendsToExistingQueryParams(t *testing.T) {
+	d := DatabaseConfig{Type: "sqlite", Database: "file:test?mode=memory&cache=shared"}
+	dsn, err := d.DSN()
+	if err != nil {
+		t.Fatalf("DSN() error: %v", err)
+	}
+	if !strings.Contains(dsn, "mode=memory") || !strings.Contains(dsn, "cache=shared") {
+		t.Errorf("DSN() = %q, want original query params preserved", dsn)
+	}
+	if !strings.Contains(dsn, "_busy_timeout=5000") || !strings.Contains(dsn, "_journal_mode=WAL") || !strings.Contains(dsn, "_txlock=immediate") {
+		t.Errorf("DSN() = %q, want busy_timeout/journal_mode/txlock appended", dsn)
+	}
+	if strings.Count(dsn, "?") != 1 {
+		t.Errorf("DSN() = %q, want exactly one '?' (rest joined with '&')", dsn)
+	}
+}
+
+func TestDSNSqliteRespectsExplicitPragmas(t *testing.T) {
+	d := DatabaseConfig{Type: "sqlite", Database: "file:test?_busy_timeout=1000"}
+	dsn, err := d.DSN()
+	if err != nil {
+		t.Fatalf("DSN() error: %v", err)
+	}
+	if dsn != d.Database {
+		t.Errorf("DSN() = %q, want it left untouched when the operator already set a pragma, got %q", dsn, d.Database)
+	}
+}
+
+func TestDSNPostgresIncludesConnectTimeout(t *testing.T) {
+	d := DatabaseConfig{Type: "postgresql", Host: "db", Port: 5432, Username: "hss", Password: "hss", Database: "hss"}
+	dsn, err := d.DSN()
+	if err != nil {
+		t.Fatalf("DSN() error: %v", err)
+	}
+	if !strings.Contains(dsn, "connect_timeout=5") {
+		t.Errorf("DSN() = %q, want default connect_timeout=5", dsn)
+	}
+
+	d.ConnectTimeout = 10
+	dsn, err = d.DSN()
+	if err != nil {
+		t.Fatalf("DSN() error: %v", err)
+	}
+	if !strings.Contains(dsn, "connect_timeout=10") {
+		t.Errorf("DSN() = %q, want configured connect_timeout=10", dsn)
+	}
+}
+
 func TestLoadNormalizesFiveGCConfig(t *testing.T) {
 	cfgText := `
 hss:

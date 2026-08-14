@@ -232,7 +232,33 @@ func (d DatabaseConfig) DSN() (string, error) {
 		return fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable client_encoding=UTF8 connect_timeout=%d",
 			d.Host, d.Port, d.Username, d.Password, d.Database, connectTimeout), nil
 	case "sqlite":
-		return d.Database, nil
+		// mattn/go-sqlite3 recognizes these as connection-string pragmas.
+		// Without them, concurrent access (multiple pool connections against
+		// one file) fails immediately with "database is locked" instead of
+		// waiting:
+		//   - _journal_mode=WAL lets concurrent readers proceed alongside a
+		//     writer, instead of blocking on the writer.
+		//   - _busy_timeout makes a genuine write/write conflict wait
+		//     (up to this many ms) instead of erroring out immediately.
+		//   - _txlock=immediate matters for code like
+		//     AtomicGetAndIncrementSQN, which reads a row then writes it
+		//     back inside one transaction. SQLite's default (deferred)
+		//     transaction only acquires the write lock lazily, at the first
+		//     write statement — and busy_timeout does not reliably apply to
+		//     that lazy upgrade, so the write can still fail instantly even
+		//     with busy_timeout set. BEGIN IMMEDIATE takes the write lock
+		//     up front, where busy_timeout's wait-and-retry does apply.
+		// Skipped if the configured database string already specifies its
+		// own pragmas, so an operator's explicit choice isn't silently
+		// overridden.
+		if strings.Contains(d.Database, "_busy_timeout") || strings.Contains(d.Database, "_journal_mode") || strings.Contains(d.Database, "_txlock") {
+			return d.Database, nil
+		}
+		sep := "?"
+		if strings.Contains(d.Database, "?") {
+			sep = "&"
+		}
+		return d.Database + sep + "_busy_timeout=5000&_journal_mode=WAL&_txlock=immediate", nil
 	default:
 		return "", fmt.Errorf("unsupported db_type %q", d.Type)
 	}
