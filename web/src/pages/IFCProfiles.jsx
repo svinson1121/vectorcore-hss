@@ -3,8 +3,11 @@ import { Plus, Pencil, Trash2, RefreshCw, FileCode, ChevronUp, ChevronDown, Chev
 import { useSort } from '../hooks/useSort.js'
 import Spinner from '../components/Spinner.jsx'
 import Modal from '../components/Modal.jsx'
+import DiscardConfirm from '../components/DiscardConfirm.jsx'
 import { useToast } from '../components/Toast.jsx'
 import { usePoller } from '../hooks/usePoller.js'
+import { useDirtyState } from '../hooks/useDirtyState.js'
+import { useConfirmClose } from '../hooks/useConfirmClose.js'
 import { getIFCProfiles, createIFCProfile, updateIFCProfile, deleteIFCProfile, getIMSSubscribers } from '../api/client.js'
 
 const DEFAULT_IFC_TEMPLATE = `<!--VectorCore iFC Template. Variables: {imsi} {msisdn} {mnc} {mcc}-->
@@ -211,12 +214,13 @@ function validateXMLFragment(value) {
 function IFCProfileModal({ profile, onClose, onSaved }) {
   const toast = useToast()
   const isEdit = !!profile
-  const [form, setForm] = useState(isEdit ? {
+  const [form, setForm, dirty] = useDirtyState(isEdit ? {
     name: profile.name || '',
     xml_data: profile.xml_data || '',
   } : { name: '', xml_data: DEFAULT_IFC_TEMPLATE })
   const [saving, setSaving] = useState(false)
   const validation = validateXMLFragment(form.xml_data)
+  const { requestClose: guardedClose, confirming, confirmDiscard, cancelDiscard } = useConfirmClose(dirty, onClose)
 
   function set(k, v) { setForm(prev => ({ ...prev, [k]: v })) }
 
@@ -244,7 +248,7 @@ function IFCProfileModal({ profile, onClose, onSaved }) {
   }
 
   return (
-    <Modal title={isEdit ? 'Edit IFC Profile' : 'Add IFC Profile'} onClose={onClose} size="lg">
+    <Modal title={isEdit ? 'Edit IFC Profile' : 'Add IFC Profile'} onClose={guardedClose} size="lg" closeOnBackdrop={false} closeOnEscape={false}>
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
         <div className="modal-body">
           <div className="form-group">
@@ -276,6 +280,7 @@ function IFCProfileModal({ profile, onClose, onSaved }) {
           </button>
         </div>
       </form>
+      <DiscardConfirm open={confirming} onDiscard={confirmDiscard} onCancel={cancelDiscard} />
     </Modal>
   )
 }

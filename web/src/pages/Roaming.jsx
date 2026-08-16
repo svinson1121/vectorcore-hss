@@ -3,8 +3,11 @@ import { Plus, Pencil, Trash2, Search, RefreshCw, Globe2, ChevronUp, ChevronDown
 import { useSort } from '../hooks/useSort.js'
 import Spinner from '../components/Spinner.jsx'
 import Modal from '../components/Modal.jsx'
+import DiscardConfirm from '../components/DiscardConfirm.jsx'
 import { useToast } from '../components/Toast.jsx'
 import { usePoller } from '../hooks/usePoller.js'
+import { useDirtyState } from '../hooks/useDirtyState.js'
+import { useConfirmClose } from '../hooks/useConfirmClose.js'
 import { getRoamingRules, createRoamingRule, updateRoamingRule, deleteRoamingRule } from '../api/client.js'
 
 const EMPTY_FORM = {
@@ -18,7 +21,7 @@ const EMPTY_FORM = {
 function RoamingModal({ row, onClose, onSaved }) {
   const toast = useToast()
   const isEdit = !!row
-  const [form, setForm] = useState(row ? {
+  const [form, setForm, dirty] = useDirtyState(row ? {
     name: row.name || '',
     mcc: row.mcc || '',
     mnc: row.mnc || '',
@@ -26,6 +29,7 @@ function RoamingModal({ row, onClose, onSaved }) {
     enabled: row.enabled !== false,
   } : { ...EMPTY_FORM })
   const [saving, setSaving] = useState(false)
+  const { requestClose: guardedClose, confirming, confirmDiscard, cancelDiscard } = useConfirmClose(dirty, onClose)
 
   function set(k, v) {
     setForm(prev => ({ ...prev, [k]: v }))
@@ -59,7 +63,7 @@ function RoamingModal({ row, onClose, onSaved }) {
   }
 
   return (
-    <Modal title={isEdit ? 'Edit Roaming Rule' : 'Add Roaming Rule'} onClose={onClose}>
+    <Modal title={isEdit ? 'Edit Roaming Rule' : 'Add Roaming Rule'} onClose={guardedClose} closeOnBackdrop={false} closeOnEscape={false}>
       <form onSubmit={handleSubmit}>
         <div className="modal-body">
           <div className="form-group">
@@ -112,6 +116,7 @@ function RoamingModal({ row, onClose, onSaved }) {
           </button>
         </div>
       </form>
+      <DiscardConfirm open={confirming} onDiscard={confirmDiscard} onCancel={cancelDiscard} />
     </Modal>
   )
 }

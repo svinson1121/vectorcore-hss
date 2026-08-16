@@ -2,8 +2,11 @@ import React, { useState, useCallback, useEffect } from 'react'
 import { Plus, Pencil, Trash2, XCircle, RefreshCw, X } from 'lucide-react'
 import Spinner from '../components/Spinner.jsx'
 import Modal from '../components/Modal.jsx'
+import DiscardConfirm from '../components/DiscardConfirm.jsx'
 import { useToast } from '../components/Toast.jsx'
 import { usePoller } from '../hooks/usePoller.js'
+import { useDirtyState } from '../hooks/useDirtyState.js'
+import { useConfirmClose } from '../hooks/useConfirmClose.js'
 import { getAPNs, createAPN, updateAPN, deleteAPN, getChargingRules, getSubscribers, getSubscriberRoutings } from '../api/client.js'
 import ChargingRules from './ChargingRules.jsx'
 
@@ -93,7 +96,7 @@ function APNModal({ apn, onClose, onSaved, chargingRules }) {
     ? apn.charging_rule_list.split(',').map(s => s.trim()).filter(Boolean)
     : []
 
-  const [form, setForm] = useState(apn ? {
+  const [form, setForm, formDirty] = useDirtyState(apn ? {
     apn: apn.apn || '',
     ip_version: apn.ip_version != null ? apn.ip_version : 0,
     pgw_address: apn.pgw_address || '',
@@ -135,11 +138,13 @@ function APNModal({ apn, onClose, onSaved, chargingRules }) {
     preferred_data_mode_control_plane: false,
   })
 
-  const [selectedRuleIds, setSelectedRuleIds] = useState(initialRuleIds)
+  const [selectedRuleIds, setSelectedRuleIds, ruleIdsDirty] = useDirtyState(initialRuleIds)
   const [rulePickerValue, setRulePickerValue] = useState('')
   const [availableChargingRules, setAvailableChargingRules] = useState(chargingRules)
   const [loadingChargingRules, setLoadingChargingRules] = useState(true)
   const [saving, setSaving] = useState(false)
+  const dirty = formDirty || ruleIdsDirty
+  const { requestClose: guardedClose, confirming, confirmDiscard, cancelDiscard } = useConfirmClose(dirty, onClose)
 
   useEffect(() => {
     let active = true
@@ -222,7 +227,7 @@ function APNModal({ apn, onClose, onSaved, chargingRules }) {
   const availableRules = availableChargingRules.filter(r => !selectedRuleIds.includes(String(r.charging_rule_id)))
 
   return (
-    <Modal title={isEdit ? 'Edit APN' : 'Add APN'} onClose={onClose} size="lg">
+    <Modal title={isEdit ? 'Edit APN' : 'Add APN'} onClose={guardedClose} size="lg" closeOnBackdrop={false} closeOnEscape={false}>
       <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
         <div className="modal-body">
 
@@ -408,6 +413,7 @@ function APNModal({ apn, onClose, onSaved, chargingRules }) {
           </button>
         </div>
       </form>
+      <DiscardConfirm open={confirming} onDiscard={confirmDiscard} onCancel={cancelDiscard} />
     </Modal>
   )
 }

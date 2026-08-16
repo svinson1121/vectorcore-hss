@@ -4,7 +4,10 @@ import { useSort } from '../hooks/useSort.js'
 import { useInfiniteScroll } from '../hooks/useInfiniteScroll.js'
 import Spinner from '../components/Spinner.jsx'
 import Modal from '../components/Modal.jsx'
+import DiscardConfirm from '../components/DiscardConfirm.jsx'
 import { useToast } from '../components/Toast.jsx'
+import { useDirtyState } from '../hooks/useDirtyState.js'
+import { useConfirmClose } from '../hooks/useConfirmClose.js'
 import {
   getIMSSubscribers, createIMSSubscriber, updateIMSSubscriber, deleteIMSSubscriber,
   getSubscribers, getIFCProfiles,
@@ -40,7 +43,7 @@ function IMSModal({ row, onClose, onSaved, subscriberList, ifcProfiles }) {
   const isEdit = !!row
   const [availableIfcProfiles, setAvailableIfcProfiles] = useState(ifcProfiles)
   const [loadingIfcProfiles, setLoadingIfcProfiles] = useState(true)
-  const [form, setForm] = useState(isEdit ? {
+  const [form, setForm, dirty] = useDirtyState(isEdit ? {
     imsi: row.imsi || '',
     msisdn: row.msisdn || '',
     msisdn_list: row.msisdn_list || '',
@@ -52,6 +55,7 @@ function IMSModal({ row, onClose, onSaved, subscriberList, ifcProfiles }) {
     ifc_profile_id: '',
   })
   const [saving, setSaving] = useState(false)
+  const { requestClose: guardedClose, confirming, confirmDiscard, cancelDiscard } = useConfirmClose(dirty, onClose)
 
   useEffect(() => {
     let active = true
@@ -138,7 +142,7 @@ function IMSModal({ row, onClose, onSaved, subscriberList, ifcProfiles }) {
   }
 
   return (
-    <Modal title={isEdit ? 'Edit IMS Subscriber' : 'Add IMS Subscriber'} onClose={onClose} size="lg">
+    <Modal title={isEdit ? 'Edit IMS Subscriber' : 'Add IMS Subscriber'} onClose={guardedClose} size="lg" closeOnBackdrop={false} closeOnEscape={false}>
       <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
         <div className="modal-body">
 
@@ -204,6 +208,7 @@ function IMSModal({ row, onClose, onSaved, subscriberList, ifcProfiles }) {
           </button>
         </div>
       </form>
+      <DiscardConfirm open={confirming} onDiscard={confirmDiscard} onCancel={cancelDiscard} />
     </Modal>
   )
 }

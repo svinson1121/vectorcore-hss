@@ -4,8 +4,11 @@ import { useSort } from '../hooks/useSort.js'
 import { useInfiniteScroll } from '../hooks/useInfiniteScroll.js'
 import Spinner from '../components/Spinner.jsx'
 import Modal from '../components/Modal.jsx'
+import DiscardConfirm from '../components/DiscardConfirm.jsx'
 import Badge from '../components/Badge.jsx'
 import { useToast } from '../components/Toast.jsx'
+import { useDirtyState } from '../hooks/useDirtyState.js'
+import { useConfirmClose } from '../hooks/useConfirmClose.js'
 import {
   getSubscribers, createSubscriber, updateSubscriber, deleteSubscriber,
   getAUCs, getAPNs, getEIRHistory, getIMSSubscribers, getSubscriberAttributes, getSubscriberRoutings,
@@ -217,7 +220,7 @@ function SubscriberModal({ sub, onClose, onSaved, aucList, apnList }) {
     ? sub.apn_list.split(',').map(s => s.trim()).filter(Boolean)
     : []
 
-  const [form, setForm] = useState(isEdit ? {
+  const [form, setForm, formDirty] = useDirtyState(isEdit ? {
     imsi: sub.imsi || '',
     auc_id: sub.auc_id != null ? String(sub.auc_id) : '',
     msisdn: sub.msisdn || '',
@@ -247,13 +250,15 @@ function SubscriberModal({ sub, onClose, onSaved, aucList, apnList }) {
     nssai: '',
   })
 
-  const [selectedApnIds, setSelectedApnIds] = useState(initialApnIds)
+  const [selectedApnIds, setSelectedApnIds, apnIdsDirty] = useDirtyState(initialApnIds)
   const [apnPickerValue, setApnPickerValue] = useState('')
   const [availableAucs, setAvailableAucs] = useState(aucList)
   const [availableApns, setAvailableApns] = useState(apnList)
   const [loadingAucs, setLoadingAucs] = useState(true)
   const [loadingApns, setLoadingApns] = useState(true)
   const [saving, setSaving] = useState(false)
+  const dirty = formDirty || apnIdsDirty
+  const { requestClose: guardedClose, confirming, confirmDiscard, cancelDiscard } = useConfirmClose(dirty, onClose)
 
   useEffect(() => {
     let active = true
@@ -388,7 +393,7 @@ function SubscriberModal({ sub, onClose, onSaved, aucList, apnList }) {
   const selectableApns = availableApns.filter(a => !selectedApnIds.includes(String(a.apn_id)))
 
   return (
-    <Modal title={isEdit ? 'Edit Subscriber' : 'Add Subscriber'} onClose={onClose} size="lg">
+    <Modal title={isEdit ? 'Edit Subscriber' : 'Add Subscriber'} onClose={guardedClose} size="lg" closeOnBackdrop={false} closeOnEscape={false}>
       <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
         <div className="modal-body">
 
@@ -564,6 +569,7 @@ function SubscriberModal({ sub, onClose, onSaved, aucList, apnList }) {
           </button>
         </div>
       </form>
+      <DiscardConfirm open={confirming} onDiscard={confirmDiscard} onCancel={cancelDiscard} />
     </Modal>
   )
 }

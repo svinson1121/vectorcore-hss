@@ -3,8 +3,11 @@ import { Plus, Pencil, Trash2, RefreshCw, GitBranch, ChevronUp, ChevronDown, Che
 import { useSort } from '../hooks/useSort.js'
 import Spinner from '../components/Spinner.jsx'
 import Modal from '../components/Modal.jsx'
+import DiscardConfirm from '../components/DiscardConfirm.jsx'
 import { useToast } from '../components/Toast.jsx'
 import { usePoller } from '../hooks/usePoller.js'
+import { useDirtyState } from '../hooks/useDirtyState.js'
+import { useConfirmClose } from '../hooks/useConfirmClose.js'
 import { getSubscriberRoutings, createSubscriberRouting, updateSubscriberRouting, deleteSubscriberRouting, getSubscribers, getAPNs } from '../api/client.js'
 
 const IP_VERSION_LABELS = { 0: 'IPv4', 1: 'IPv6', 2: 'IPv4v6', 3: 'IPv4 or v6' }
@@ -16,13 +19,14 @@ function RoutingModal({ routing, onClose, onSaved, subscribers, apns }) {
   const [availableApns, setAvailableApns] = useState(apns)
   const [loadingSubscribers, setLoadingSubscribers] = useState(true)
   const [loadingApns, setLoadingApns] = useState(true)
-  const [form, setForm] = useState(isEdit ? {
+  const [form, setForm, dirty] = useDirtyState(isEdit ? {
     subscriber_id: String(routing.subscriber_id ?? ''),
     apn_id: String(routing.apn_id ?? ''),
     ip_version: routing.ip_version ?? 0,
     ip_address: routing.ip_address || '',
   } : { subscriber_id: '', apn_id: '', ip_version: 0, ip_address: '' })
   const [saving, setSaving] = useState(false)
+  const { requestClose: guardedClose, confirming, confirmDiscard, cancelDiscard } = useConfirmClose(dirty, onClose)
 
   useEffect(() => {
     let active = true
@@ -89,7 +93,7 @@ function RoutingModal({ routing, onClose, onSaved, subscribers, apns }) {
   }
 
   return (
-    <Modal title={isEdit ? 'Edit Subscriber Routing' : 'Add Subscriber Routing'} onClose={onClose}>
+    <Modal title={isEdit ? 'Edit Subscriber Routing' : 'Add Subscriber Routing'} onClose={guardedClose} closeOnBackdrop={false} closeOnEscape={false}>
       <form onSubmit={handleSubmit}>
         <div className="modal-body">
           <div className="form-group">
@@ -134,6 +138,7 @@ function RoutingModal({ routing, onClose, onSaved, subscribers, apns }) {
           </button>
         </div>
       </form>
+      <DiscardConfirm open={confirming} onDiscard={confirmDiscard} onCancel={cancelDiscard} />
     </Modal>
   )
 }

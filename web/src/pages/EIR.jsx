@@ -3,8 +3,11 @@ import { Plus, Pencil, Trash2, Search, RefreshCw, ShieldCheck, Upload, Download,
 import { useSort } from '../hooks/useSort.js'
 import Spinner from '../components/Spinner.jsx'
 import Modal from '../components/Modal.jsx'
+import DiscardConfirm from '../components/DiscardConfirm.jsx'
 import { useToast } from '../components/Toast.jsx'
 import { usePoller } from '../hooks/usePoller.js'
+import { useDirtyState } from '../hooks/useDirtyState.js'
+import { useConfirmClose } from '../hooks/useConfirmClose.js'
 import { getEIRs, createEIR, updateEIR, deleteEIR, getTACCount, lookupIMEI, createTAC, updateTAC, deleteTAC } from '../api/client.js'
 
 async function handleTACImport(file) {
@@ -26,12 +29,13 @@ const EMPTY_FORM = { imei: '', imsi: '', regex_mode: '1', match_response_code: '
 function EIRModal({ row, onClose, onSaved }) {
   const toast = useToast()
   const isEdit = !!row
-  const [form, setForm] = useState(row ? {
+  const [form, setForm, dirty] = useDirtyState(row ? {
     imei: row.imei || '', imsi: row.imsi || '',
     regex_mode: String(row.regex_mode ?? 1),
     match_response_code: String(row.match_response_code ?? 0),
   } : { ...EMPTY_FORM })
   const [saving, setSaving] = useState(false)
+  const { requestClose: guardedClose, confirming, confirmDiscard, cancelDiscard } = useConfirmClose(dirty, onClose)
 
   function set(k, v) { setForm(prev => ({ ...prev, [k]: v })) }
 
@@ -56,7 +60,7 @@ function EIRModal({ row, onClose, onSaved }) {
   }
 
   return (
-    <Modal title={isEdit ? 'Edit EIR Rule' : 'Add EIR Rule'} onClose={onClose}>
+    <Modal title={isEdit ? 'Edit EIR Rule' : 'Add EIR Rule'} onClose={guardedClose} closeOnBackdrop={false} closeOnEscape={false}>
       <form onSubmit={handleSubmit}>
         <div className="modal-body">
           <div className="form-group">
@@ -92,6 +96,7 @@ function EIRModal({ row, onClose, onSaved }) {
           </button>
         </div>
       </form>
+      <DiscardConfirm open={confirming} onDiscard={confirmDiscard} onCancel={cancelDiscard} />
     </Modal>
   )
 }
@@ -201,8 +206,9 @@ function TACLookup({ toast }) {
 }
 
 function TACEditModal({ entry, onClose, onSaved, toast }) {
-  const [form, setForm] = useState({ make: entry.make || '', model: entry.model || '' })
+  const [form, setForm, dirty] = useDirtyState({ make: entry.make || '', model: entry.model || '' })
   const [saving, setSaving] = useState(false)
+  const { requestClose: guardedClose, confirming, confirmDiscard, cancelDiscard } = useConfirmClose(dirty, onClose)
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -216,7 +222,7 @@ function TACEditModal({ entry, onClose, onSaved, toast }) {
   }
 
   return (
-    <Modal title={`Edit TAC ${entry.tac}`} onClose={onClose}>
+    <Modal title={`Edit TAC ${entry.tac}`} onClose={guardedClose} closeOnBackdrop={false} closeOnEscape={false}>
       <form onSubmit={handleSubmit}>
         <div className="modal-body">
           <div className="form-group">
@@ -241,13 +247,15 @@ function TACEditModal({ entry, onClose, onSaved, toast }) {
           </button>
         </div>
       </form>
+      <DiscardConfirm open={confirming} onDiscard={confirmDiscard} onCancel={cancelDiscard} />
     </Modal>
   )
 }
 
 function TACAddModal({ onClose, onSaved, toast }) {
-  const [form, setForm] = useState({ tac: '', make: '', model: '' })
+  const [form, setForm, dirty] = useDirtyState({ tac: '', make: '', model: '' })
   const [saving, setSaving] = useState(false)
+  const { requestClose: guardedClose, confirming, confirmDiscard, cancelDiscard } = useConfirmClose(dirty, onClose)
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -263,7 +271,7 @@ function TACAddModal({ onClose, onSaved, toast }) {
   }
 
   return (
-    <Modal title="Add TAC Entry" onClose={onClose}>
+    <Modal title="Add TAC Entry" onClose={guardedClose} closeOnBackdrop={false} closeOnEscape={false}>
       <form onSubmit={handleSubmit}>
         <div className="modal-body">
           <div className="form-group">
@@ -288,6 +296,7 @@ function TACAddModal({ onClose, onSaved, toast }) {
           </button>
         </div>
       </form>
+      <DiscardConfirm open={confirming} onDiscard={confirmDiscard} onCancel={cancelDiscard} />
     </Modal>
   )
 }

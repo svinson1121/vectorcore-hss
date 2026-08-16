@@ -4,7 +4,10 @@ import { useSort } from '../hooks/useSort.js'
 import { useInfiniteScroll } from '../hooks/useInfiniteScroll.js'
 import Spinner from '../components/Spinner.jsx'
 import Modal from '../components/Modal.jsx'
+import DiscardConfirm from '../components/DiscardConfirm.jsx'
 import { useToast } from '../components/Toast.jsx'
+import { useDirtyState } from '../hooks/useDirtyState.js'
+import { useConfirmClose } from '../hooks/useConfirmClose.js'
 import { getAUCs, createAUC, updateAUC, deleteAUC, getAlgorithmProfiles, getSubscribers } from '../api/client.js'
 import AlgorithmProfiles from './AlgorithmProfiles.jsx'
 
@@ -47,7 +50,7 @@ function AUCModal({ auc, onClose, onSaved, algorithmProfiles }) {
   const [showKeys, setShowKeys] = useState(!isEdit)
   const [availableAlgorithmProfiles, setAvailableAlgorithmProfiles] = useState(algorithmProfiles)
   const [loadingAlgorithmProfiles, setLoadingAlgorithmProfiles] = useState(true)
-  const [form, setForm] = useState(auc ? {
+  const [form, setForm, dirty] = useDirtyState(auc ? {
     imsi: auc.imsi || '',
     iccid: auc.iccid || '',
     ki: '', opc: '',
@@ -64,6 +67,7 @@ function AUCModal({ auc, onClose, onSaved, algorithmProfiles }) {
     algorithm_profile_id: auc.algorithm_profile_id != null ? String(auc.algorithm_profile_id) : '',
   } : { ...EMPTY_FORM })
   const [saving, setSaving] = useState(false)
+  const { requestClose: guardedClose, confirming, confirmDiscard, cancelDiscard } = useConfirmClose(dirty, onClose)
 
   useEffect(() => {
     let active = true
@@ -137,7 +141,7 @@ function AUCModal({ auc, onClose, onSaved, algorithmProfiles }) {
   }
 
   return (
-    <Modal title={isEdit ? 'Edit AUC Entry' : 'Add AUC Entry'} onClose={onClose} size="lg">
+    <Modal title={isEdit ? 'Edit AUC Entry' : 'Add AUC Entry'} onClose={guardedClose} size="lg" closeOnBackdrop={false} closeOnEscape={false}>
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
         <div className="modal-body">
 
@@ -314,6 +318,7 @@ function AUCModal({ auc, onClose, onSaved, algorithmProfiles }) {
           </button>
         </div>
       </form>
+      <DiscardConfirm open={confirming} onDiscard={confirmDiscard} onCancel={cancelDiscard} />
     </Modal>
   )
 }

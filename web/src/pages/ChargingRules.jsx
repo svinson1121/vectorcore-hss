@@ -2,8 +2,11 @@ import React, { useState, useCallback, useEffect } from 'react'
 import { Plus, Pencil, Trash2, RefreshCw, Zap } from 'lucide-react'
 import Spinner from '../components/Spinner.jsx'
 import Modal from '../components/Modal.jsx'
+import DiscardConfirm from '../components/DiscardConfirm.jsx'
 import { useToast } from '../components/Toast.jsx'
 import { usePoller } from '../hooks/usePoller.js'
+import { useDirtyState } from '../hooks/useDirtyState.js'
+import { useConfirmClose } from '../hooks/useConfirmClose.js'
 import {
   getChargingRules, createChargingRule, updateChargingRule, deleteChargingRule,
   getTFTs, createTFT, updateTFT, deleteTFT,
@@ -54,7 +57,7 @@ function ChargingRuleModal({ rule, onClose, onSaved, tfts = [] }) {
   const isEdit = !!rule
   const [availableTfts, setAvailableTfts] = useState(tfts)
   const [loadingTfts, setLoadingTfts] = useState(true)
-  const [form, setForm] = useState(rule ? {
+  const [form, setForm, dirty] = useDirtyState(rule ? {
     rule_name: rule.rule_name || '',
     qci: rule.qci || 9,
     arp_priority: rule.arp_priority || 1,
@@ -69,6 +72,7 @@ function ChargingRuleModal({ rule, onClose, onSaved, tfts = [] }) {
     rating_group: rule.rating_group != null ? String(rule.rating_group) : '',
   } : { ...EMPTY_RULE })
   const [saving, setSaving] = useState(false)
+  const { requestClose: guardedClose, confirming, confirmDiscard, cancelDiscard } = useConfirmClose(dirty, onClose)
 
   useEffect(() => {
     let active = true
@@ -134,7 +138,7 @@ function ChargingRuleModal({ rule, onClose, onSaved, tfts = [] }) {
   }
 
   return (
-    <Modal title={isEdit ? 'Edit Charging Rule' : 'Add Charging Rule'} onClose={onClose} size="lg">
+    <Modal title={isEdit ? 'Edit Charging Rule' : 'Add Charging Rule'} onClose={guardedClose} size="lg" closeOnBackdrop={false} closeOnEscape={false}>
       <form onSubmit={handleSubmit}>
         <div className="modal-body">
           <div className="form-group">
@@ -225,6 +229,7 @@ function ChargingRuleModal({ rule, onClose, onSaved, tfts = [] }) {
           </button>
         </div>
       </form>
+      <DiscardConfirm open={confirming} onDiscard={confirmDiscard} onCancel={cancelDiscard} />
     </Modal>
   )
 }
@@ -240,12 +245,13 @@ const EMPTY_TFT = {
 function TFTModal({ tft, onClose, onSaved }) {
   const toast = useToast()
   const isEdit = !!tft
-  const [form, setForm] = useState(tft ? {
+  const [form, setForm, dirty] = useDirtyState(tft ? {
     tft_group_id: tft.tft_group_id != null ? String(tft.tft_group_id) : '',
     tft_string: tft.tft_string || '',
     direction: tft.direction != null ? tft.direction : 1,
   } : { ...EMPTY_TFT })
   const [saving, setSaving] = useState(false)
+  const { requestClose: guardedClose, confirming, confirmDiscard, cancelDiscard } = useConfirmClose(dirty, onClose)
 
   function set(k, v) {
     setForm(prev => ({ ...prev, [k]: v }))
@@ -277,7 +283,7 @@ function TFTModal({ tft, onClose, onSaved }) {
   }
 
   return (
-    <Modal title={isEdit ? 'Edit TFT Entry' : 'Add TFT Entry'} onClose={onClose}>
+    <Modal title={isEdit ? 'Edit TFT Entry' : 'Add TFT Entry'} onClose={guardedClose} closeOnBackdrop={false} closeOnEscape={false}>
       <form onSubmit={handleSubmit}>
         <div className="modal-body">
           <div className="form-row">
@@ -321,6 +327,7 @@ function TFTModal({ tft, onClose, onSaved }) {
           </button>
         </div>
       </form>
+      <DiscardConfirm open={confirming} onDiscard={confirmDiscard} onCancel={cancelDiscard} />
     </Modal>
   )
 }

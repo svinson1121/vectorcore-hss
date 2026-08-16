@@ -2,8 +2,11 @@ import React, { useState, useCallback, useEffect } from 'react'
 import { Plus, Pencil, Trash2, RefreshCw, Cpu } from 'lucide-react'
 import Spinner from '../components/Spinner.jsx'
 import Modal from '../components/Modal.jsx'
+import DiscardConfirm from '../components/DiscardConfirm.jsx'
 import { useToast } from '../components/Toast.jsx'
 import { usePoller } from '../hooks/usePoller.js'
+import { useDirtyState } from '../hooks/useDirtyState.js'
+import { useConfirmClose } from '../hooks/useConfirmClose.js'
 import { getAlgorithmProfiles, createAlgorithmProfile, updateAlgorithmProfile, deleteAlgorithmProfile, getAUCs } from '../api/client.js'
 
 const SECTION_STYLE = {
@@ -23,7 +26,7 @@ const DEFAULT_R = { r1: 64, r2: 0, r3: 32, r4: 64, r5: 96 }
 function AlgorithmProfileModal({ profile, onClose, onSaved }) {
   const toast = useToast()
   const isEdit = !!profile
-  const [form, setForm] = useState(isEdit ? {
+  const [form, setForm, dirty] = useDirtyState(isEdit ? {
     profile_name: profile.profile_name || '',
     c1: profile.c1 || '',
     c2: profile.c2 || '',
@@ -49,6 +52,7 @@ function AlgorithmProfileModal({ profile, onClose, onSaved }) {
     r5: DEFAULT_R.r5,
   })
   const [saving, setSaving] = useState(false)
+  const { requestClose: guardedClose, confirming, confirmDiscard, cancelDiscard } = useConfirmClose(dirty, onClose)
 
   function set(k, v) {
     setForm(prev => ({ ...prev, [k]: v }))
@@ -92,7 +96,7 @@ function AlgorithmProfileModal({ profile, onClose, onSaved }) {
   }
 
   return (
-    <Modal title={isEdit ? 'Edit Algorithm Profile' : 'Add Algorithm Profile'} onClose={onClose} size="lg">
+    <Modal title={isEdit ? 'Edit Algorithm Profile' : 'Add Algorithm Profile'} onClose={guardedClose} size="lg" closeOnBackdrop={false} closeOnEscape={false}>
       <form onSubmit={handleSubmit}>
         <div className="modal-body">
 
@@ -179,6 +183,7 @@ function AlgorithmProfileModal({ profile, onClose, onSaved }) {
           </button>
         </div>
       </form>
+      <DiscardConfirm open={confirming} onDiscard={confirmDiscard} onCancel={cancelDiscard} />
     </Modal>
   )
 }

@@ -3,8 +3,11 @@ import { Plus, Pencil, Trash2, Search, RefreshCw, Tag, ChevronUp, ChevronDown, C
 import { useSort } from '../hooks/useSort.js'
 import Spinner from '../components/Spinner.jsx'
 import Modal from '../components/Modal.jsx'
+import DiscardConfirm from '../components/DiscardConfirm.jsx'
 import { useToast } from '../components/Toast.jsx'
 import { usePoller } from '../hooks/usePoller.js'
+import { useDirtyState } from '../hooks/useDirtyState.js'
+import { useConfirmClose } from '../hooks/useConfirmClose.js'
 import { getSubscriberAttributes, createSubscriberAttribute, updateSubscriberAttribute, deleteSubscriberAttribute, getSubscribers } from '../api/client.js'
 
 function AttributeModal({ attr, onClose, onSaved, subscribers }) {
@@ -12,12 +15,13 @@ function AttributeModal({ attr, onClose, onSaved, subscribers }) {
   const isEdit = !!attr
   const [availableSubscribers, setAvailableSubscribers] = useState(subscribers)
   const [loadingSubscribers, setLoadingSubscribers] = useState(true)
-  const [form, setForm] = useState(isEdit ? {
+  const [form, setForm, dirty] = useDirtyState(isEdit ? {
     subscriber_id: String(attr.subscriber_id ?? ''),
     key: attr.key || '',
     value: attr.value || '',
   } : { subscriber_id: '', key: '', value: '' })
   const [saving, setSaving] = useState(false)
+  const { requestClose: guardedClose, confirming, confirmDiscard, cancelDiscard } = useConfirmClose(dirty, onClose)
 
   useEffect(() => {
     let active = true
@@ -63,7 +67,7 @@ function AttributeModal({ attr, onClose, onSaved, subscribers }) {
   }
 
   return (
-    <Modal title={isEdit ? 'Edit Attribute' : 'Add Subscriber Attribute'} onClose={onClose}>
+    <Modal title={isEdit ? 'Edit Attribute' : 'Add Subscriber Attribute'} onClose={guardedClose} closeOnBackdrop={false} closeOnEscape={false}>
       <form onSubmit={handleSubmit}>
         <div className="modal-body">
           <div className="form-group">
@@ -100,6 +104,7 @@ function AttributeModal({ attr, onClose, onSaved, subscribers }) {
           </button>
         </div>
       </form>
+      <DiscardConfirm open={confirming} onDiscard={confirmDiscard} onCancel={cancelDiscard} />
     </Modal>
   )
 }
