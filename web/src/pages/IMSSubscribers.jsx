@@ -5,6 +5,7 @@ import { useInfiniteScroll } from '../hooks/useInfiniteScroll.js'
 import Spinner from '../components/Spinner.jsx'
 import Modal from '../components/Modal.jsx'
 import DiscardConfirm from '../components/DiscardConfirm.jsx'
+import SearchableSelect from '../components/SearchableSelect.jsx'
 import { useToast } from '../components/Toast.jsx'
 import { useDirtyState } from '../hooks/useDirtyState.js'
 import { useConfirmClose } from '../hooks/useConfirmClose.js'
@@ -83,8 +84,7 @@ function IMSModal({ row, onClose, onSaved, subscriberList, ifcProfiles }) {
     setForm(prev => ({ ...prev, [k]: v }))
   }
 
-  function handleImsiChange(e) {
-    const imsi = e.target.value
+  function handleImsiChange(imsi) {
     set('imsi', imsi)
     if (imsi) {
       const sub = subscriberList.find(s => s.imsi === imsi)
@@ -98,19 +98,14 @@ function IMSModal({ row, onClose, onSaved, subscriberList, ifcProfiles }) {
     }
   }
 
-  function handleMsisdnChange(e) {
-    const v = e.target.value
-    setForm(prev => ({
-      ...prev,
-      msisdn: v,
-      msisdn_list: prev.msisdn_list || v,
-    }))
-  }
-
   async function handleSubmit(e) {
     e.preventDefault()
+    if (!form.imsi) {
+      toast.error('Validation', 'IMSI / MSISDN is required — select a subscriber above')
+      return
+    }
     if (!form.msisdn.trim()) {
-      toast.error('Validation', 'MSISDN is required')
+      toast.error('Validation', 'Selected subscriber has no MSISDN on file — set one on the Subscribers page first')
       return
     }
     if (!form.ifc_profile_id) {
@@ -121,8 +116,8 @@ function IMSModal({ row, onClose, onSaved, subscriberList, ifcProfiles }) {
     try {
       const payload = {
         msisdn: form.msisdn,
+        imsi: form.imsi,
         ...(form.msisdn_list && { msisdn_list: form.msisdn_list }),
-        ...(form.imsi && { imsi: form.imsi }),
         ...(form.ifc_profile_id !== '' && { ifc_profile_id: parseInt(form.ifc_profile_id, 10) }),
       }
       if (isEdit) {
@@ -149,26 +144,25 @@ function IMSModal({ row, onClose, onSaved, subscriberList, ifcProfiles }) {
           <div style={SECTION_STYLE}>Identity</div>
           <div className="form-row">
             <div className="form-group">
-              <label className="form-label">IMSI</label>
-              <select
-                className="select"
+              <label className="form-label">IMSI / MSISDN <span style={{ color: 'var(--danger)' }}>*</span></label>
+              <SearchableSelect
+                options={subscriberList.filter(s => s.msisdn).map(s => ({
+                  value: s.imsi,
+                  label: `${s.imsi} (${s.msisdn})`,
+                  sublabel: s.msisdn,
+                }))}
                 value={form.imsi}
                 onChange={handleImsiChange}
-              >
-                <option value="">— Select Subscriber (optional) —</option>
-                {subscriberList.map(s => (
-                  <option key={s.subscriber_id} value={s.imsi}>{s.imsi} {s.msisdn ? `(${s.msisdn})` : ''}</option>
-                ))}
-              </select>
+                placeholder="— Select subscriber —"
+              />
             </div>
             <div className="form-group">
-              <label className="form-label">MSISDN <span style={{ color: 'var(--danger)' }}>*</span></label>
+              <label className="form-label">MSISDN</label>
               <input
                 className="input mono"
                 value={form.msisdn}
-                onChange={handleMsisdnChange}
+                readOnly
                 placeholder="441234567890"
-                required
               />
             </div>
           </div>

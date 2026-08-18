@@ -4,6 +4,7 @@ import { useSort } from '../hooks/useSort.js'
 import Spinner from '../components/Spinner.jsx'
 import Modal from '../components/Modal.jsx'
 import DiscardConfirm from '../components/DiscardConfirm.jsx'
+import SearchableSelect from '../components/SearchableSelect.jsx'
 import { useToast } from '../components/Toast.jsx'
 import { usePoller } from '../hooks/usePoller.js'
 import { useDirtyState } from '../hooks/useDirtyState.js'
@@ -72,14 +73,17 @@ function AttributeModal({ attr, onClose, onSaved, subscribers }) {
         <div className="modal-body">
           <div className="form-group">
             <label className="form-label">Subscriber <span style={{ color: 'var(--danger)' }}>*</span></label>
-            <select className="select" value={form.subscriber_id} onChange={e => set('subscriber_id', e.target.value)} disabled={isEdit || loadingSubscribers} required>
-              <option value="">{loadingSubscribers ? 'Loading subscribers...' : '— Select subscriber —'}</option>
-              {availableSubscribers.map(s => (
-                <option key={s.subscriber_id} value={String(s.subscriber_id)}>
-                  {s.imsi}{s.msisdn ? ` (${s.msisdn})` : ''}
-                </option>
-              ))}
-            </select>
+            <SearchableSelect
+              options={availableSubscribers.map(s => ({
+                value: String(s.subscriber_id),
+                label: `${s.imsi}${s.msisdn ? ` (${s.msisdn})` : ''}`,
+                sublabel: s.msisdn || '',
+              }))}
+              value={form.subscriber_id}
+              onChange={v => set('subscriber_id', v)}
+              placeholder={loadingSubscribers ? 'Loading subscribers...' : '— Select subscriber —'}
+              disabled={isEdit || loadingSubscribers}
+            />
           </div>
           <div className="form-group">
             <label className="form-label">Key <span style={{ color: 'var(--danger)' }}>*</span></label>

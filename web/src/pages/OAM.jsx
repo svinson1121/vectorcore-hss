@@ -3,6 +3,7 @@ import { RefreshCw, CheckCircle, XCircle, Activity, Shield, Wifi, HardDrive, Upl
 import { useSort } from '../hooks/useSort.js'
 import Spinner from '../components/Spinner.jsx'
 import Modal from '../components/Modal.jsx'
+import SearchableSelect from '../components/SearchableSelect.jsx'
 import { usePoller } from '../hooks/usePoller.js'
 import { getVersion, getHealth, getDiameterPeers, getGSUPPeers, getSBIPeers, getSubscribers, sendCLR, getEmergencySessions, getOperationLogs, rollbackOperation } from '../api/client.js'
 import { useToast } from '../components/Toast.jsx'
@@ -522,12 +523,16 @@ export default function OAM() {
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
           <div className="form-group" style={{ margin: 0, minWidth: 240 }}>
             <label className="form-label" style={{ fontSize: '0.75rem' }}>Subscriber (known IMSI)</label>
-            <select className="select" value={clrImsi} onChange={e => { setClrImsi(e.target.value); setClrCustom('') }}>
-              <option value="">— Select subscriber —</option>
-              {subscribers.map(s => (
-                <option key={s.subscriber_id} value={s.imsi}>{s.imsi}{s.msisdn ? ` (${s.msisdn})` : ''}</option>
-              ))}
-            </select>
+            <SearchableSelect
+              options={subscribers.map(s => ({
+                value: s.imsi,
+                label: `${s.imsi}${s.msisdn ? ` (${s.msisdn})` : ''}`,
+                sublabel: [s.msisdn, s.alias].filter(Boolean).join(' '),
+              }))}
+              value={clrImsi}
+              onChange={v => { setClrImsi(v); setClrCustom('') }}
+              placeholder="— Select subscriber —"
+            />
           </div>
           <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', alignSelf: 'center', paddingBottom: 4 }}>or</div>
           <div className="form-group" style={{ margin: 0, minWidth: 200 }}>

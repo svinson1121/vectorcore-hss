@@ -6,6 +6,7 @@ import Spinner from '../components/Spinner.jsx'
 import Modal from '../components/Modal.jsx'
 import DiscardConfirm from '../components/DiscardConfirm.jsx'
 import Badge from '../components/Badge.jsx'
+import SearchableSelect from '../components/SearchableSelect.jsx'
 import { useToast } from '../components/Toast.jsx'
 import { useDirtyState } from '../hooks/useDirtyState.js'
 import { useConfirmClose } from '../hooks/useConfirmClose.js'
@@ -302,8 +303,7 @@ function SubscriberModal({ sub, onClose, onSaved, aucList, apnList }) {
     setForm(prev => ({ ...prev, [k]: v }))
   }
 
-  function handleAucChange(e) {
-    const aucId = e.target.value
+  function handleAucChange(aucId) {
     set('auc_id', aucId)
     if (aucId) {
       const auc = availableAucs.find(a => String(a.auc_id) === aucId)
@@ -402,20 +402,17 @@ function SubscriberModal({ sub, onClose, onSaved, aucList, apnList }) {
           <div className="form-row">
             <div className="form-group">
               <label className="form-label">IMSI / ICCID <span style={{ color: 'var(--danger)' }}>*</span></label>
-              <select
-                className="select"
+              <SearchableSelect
+                options={availableAucs.map(a => ({
+                  value: String(a.auc_id),
+                  label: `${a.imsi}${a.iccid ? ` [${a.iccid}]` : ''}`,
+                  sublabel: a.iccid || '',
+                }))}
                 value={form.auc_id}
                 onChange={handleAucChange}
-                required
+                placeholder={loadingAucs ? 'Loading SIM Cards...' : '— Select SIM Card —'}
                 disabled={loadingAucs}
-              >
-                <option value="">{loadingAucs ? 'Loading SIM Cards...' : '— Select SIM Card —'}</option>
-                {availableAucs.map(a => (
-                  <option key={a.auc_id} value={String(a.auc_id)}>
-                    {a.imsi} {a.iccid ? `[${a.iccid}]` : ''}
-                  </option>
-                ))}
-              </select>
+              />
             </div>
             <div className="form-group">
               <label className="form-label">MSISDN</label>

@@ -874,6 +874,72 @@ tbody tr.expandable {
   box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.1);
 }
 
+/* Searchable select — filterable combobox, drop-in for a native <select> */
+.searchable-select {
+  position: relative;
+}
+
+.searchable-select input.input {
+  padding-right: 28px;
+  cursor: text;
+}
+
+.searchable-select input.input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.searchable-select-caret {
+  position: absolute;
+  right: 9px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.searchable-select-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  max-height: 240px;
+  overflow-y: auto;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-lg);
+  padding: 4px;
+}
+
+.searchable-select-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.searchable-select-option.highlighted {
+  background: var(--bg-elevated);
+}
+
+.searchable-select-option svg {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.searchable-select-empty {
+  padding: 8px;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
 .form-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
