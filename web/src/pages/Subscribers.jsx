@@ -36,8 +36,6 @@ function fmtBps(v) {
   return `${v} bps`
 }
 
-const NAM_LABELS = { 0: 'PACKET_AND_CIRCUIT (PS+CS)', 2: 'ONLY_PACKET (PS Only)' }
-
 // Access-Restriction-Data bit positions per 3GPP TS 29.272 §7.3.31 (AVP 1426).
 // A checked box means the corresponding access is NOT allowed. This is the
 // subscriber's RAT/access authorization mask — separate from an APN's CIoT
@@ -224,6 +222,7 @@ function SubscriberModal({ sub, onClose, onSaved, aucList, apnList }) {
     imsi: sub.imsi || '',
     auc_id: sub.auc_id != null ? String(sub.auc_id) : '',
     msisdn: sub.msisdn || '',
+    alias: sub.alias || '',
     enabled: sub.enabled !== false,
     roaming_enabled: sub.roaming_enabled !== false,
     ue_ambr_dl: sub.ue_ambr_dl || 0,
@@ -238,6 +237,7 @@ function SubscriberModal({ sub, onClose, onSaved, aucList, apnList }) {
     imsi: '',
     auc_id: '',
     msisdn: '',
+    alias: '',
     enabled: true,
     roaming_enabled: true,
     ue_ambr_dl: 0,
@@ -358,6 +358,7 @@ function SubscriberModal({ sub, onClose, onSaved, aucList, apnList }) {
         imsi: form.imsi,
         auc_id: Number(form.auc_id),
         msisdn: form.msisdn || undefined,
+        alias: form.alias || undefined,
         enabled: form.enabled,
         roaming_enabled: form.roaming_enabled,
         apn_list,
@@ -423,6 +424,18 @@ function SubscriberModal({ sub, onClose, onSaved, aucList, apnList }) {
                 value={form.msisdn}
                 onChange={e => set('msisdn', e.target.value)}
                 placeholder="14155550100"
+              />
+            </div>
+          </div>
+          <div className="form-row">
+            <div className="form-group">
+              <label className="form-label">Subscriber Alias</label>
+              <input
+                className="input"
+                value={form.alias}
+                onChange={e => set('alias', e.target.value)}
+                placeholder="e.g. Jane's iPhone"
+                maxLength={32}
               />
             </div>
           </div>
@@ -712,7 +725,7 @@ export default function Subscribers() {
             <input
               className="input"
               style={{ paddingLeft: 32 }}
-              placeholder="Search by IMSI or MSISDN..."
+              placeholder="Search by IMSI, MSISDN, or Alias..."
               value={search}
               onChange={e => setSearch(e.target.value)}
             />
@@ -731,7 +744,7 @@ export default function Subscribers() {
                   <th className={`sortable${sortKey === 'imsi' ? ' sort-active' : ''}`} onClick={() => handleSort('imsi')}>IMSI<SortIcon col="imsi" /></th>
                   <th className={`sortable${sortKey === 'msisdn' ? ' sort-active' : ''}`} onClick={() => handleSort('msisdn')}>MSISDN<SortIcon col="msisdn" /></th>
                   <th className={`sortable${sortKey === 'enabled' ? ' sort-active' : ''}`} onClick={() => handleSort('enabled')}>Status<SortIcon col="enabled" /></th>
-                  <th className={`sortable${sortKey === 'nam' ? ' sort-active' : ''}`} onClick={() => handleSort('nam')}>NAM<SortIcon col="nam" /></th>
+                  <th className={`sortable${sortKey === 'alias' ? ' sort-active' : ''}`} onClick={() => handleSort('alias')}>Alias<SortIcon col="alias" /></th>
                   <th>UE AMBR DL</th>
                   <th>IMEI / Device</th>
                   <th className={`sortable${sortKey === 'last_modified' ? ' sort-active' : ''}`} onClick={() => handleSort('last_modified')}>Last Modified<SortIcon col="last_modified" /></th>
@@ -747,7 +760,7 @@ export default function Subscribers() {
                       <Badge state={sub.enabled !== false ? 'enabled' : 'disabled'} />
                     </td>
                     <td style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                      {NAM_LABELS[sub.nam ?? 0] ?? '—'}
+                      {sub.alias || '—'}
                     </td>
                     <td className="mono" style={{ fontSize: '0.78rem' }}>
                       {fmtBps(sub.ue_ambr_dl)}

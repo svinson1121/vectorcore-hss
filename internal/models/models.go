@@ -204,6 +204,7 @@ type Subscriber struct {
 	DefaultAPN            int     `gorm:"column:default_apn;not null"                     json:"default_apn"`
 	APNList               string  `gorm:"column:apn_list;size:64;not null"                json:"apn_list"`
 	MSISDN                *string `gorm:"column:msisdn;size:18"                           json:"msisdn,omitempty"`
+	Alias                 *string `gorm:"column:alias;size:32"                            json:"alias,omitempty"`
 	UEAMBRDown            int     `gorm:"column:ue_ambr_dl;default:999999"                json:"ue_ambr_dl,omitempty"`
 	UEAMBRUp              int     `gorm:"column:ue_ambr_ul;default:999999"                json:"ue_ambr_ul,omitempty"`
 	NAM                   int     `gorm:"column:nam;default:0"                            json:"nam,omitempty"`

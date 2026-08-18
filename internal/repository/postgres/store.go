@@ -664,7 +664,7 @@ func (s *Store) UpsertSubscriber(ctx context.Context, rec *models.Subscriber) er
 	return s.db.WithContext(ctx).
 		Clauses(clause.OnConflict{
 			Columns:   []clause.Column{{Name: "imsi"}},
-			DoUpdates: clause.AssignmentColumns([]string{"enabled", "auc_id", "default_apn", "apn_list", "msisdn", "ue_ambr_dl", "ue_ambr_ul", "nam", "access_restriction_data", "roaming_enabled", "subscribed_rau_tau_timer", "last_modified"}),
+			DoUpdates: clause.AssignmentColumns([]string{"enabled", "auc_id", "default_apn", "apn_list", "msisdn", "alias", "ue_ambr_dl", "ue_ambr_ul", "nam", "access_restriction_data", "roaming_enabled", "subscribed_rau_tau_timer", "last_modified"}),
 		}).
 		Create(rec).Error
 }

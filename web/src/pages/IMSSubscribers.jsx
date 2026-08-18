@@ -300,7 +300,7 @@ export default function IMSSubscribers() {
         <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
           <div style={{ position: 'relative', flex: 1, maxWidth: 340 }}>
             <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-            <input className="input" style={{ paddingLeft: 32 }} placeholder="Search by MSISDN or IMSI..."
+            <input className="input" style={{ paddingLeft: 32 }} placeholder="Search by MSISDN, IMSI, or Alias..."
               value={search} onChange={e => setSearch(e.target.value)} />
           </div>
         </div>
@@ -318,6 +318,7 @@ export default function IMSSubscribers() {
                 <tr>
                   <th className={`sortable${sortKey === 'msisdn' ? ' sort-active' : ''}`} onClick={() => handleSort('msisdn')}>MSISDN<SortIcon col="msisdn" /></th>
                   <th className={`sortable${sortKey === 'imsi' ? ' sort-active' : ''}`} onClick={() => handleSort('imsi')}>IMSI<SortIcon col="imsi" /></th>
+                  <th className={`sortable${sortKey === 'alias' ? ' sort-active' : ''}`} onClick={() => handleSort('alias')}>Alias<SortIcon col="alias" /></th>
                   <th className={`sortable${sortKey === '_ifc_profile' ? ' sort-active' : ''}`} onClick={() => handleSort('_ifc_profile')}>IFC Profile<SortIcon col="_ifc_profile" /></th>
                   <th className={`sortable${sortKey === 'last_modified' ? ' sort-active' : ''}`} onClick={() => handleSort('last_modified')}>Last Modified<SortIcon col="last_modified" /></th>
                   <th></th>
@@ -328,6 +329,7 @@ export default function IMSSubscribers() {
                   <tr key={row.ims_subscriber_id}>
                     <td className="mono" style={{ fontWeight: 600 }}>{row.msisdn}</td>
                     <td className="mono" style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>{row.imsi || '—'}</td>
+                    <td style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>{row.alias || '—'}</td>
                     <td style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>{getIfcName(row.ifc_profile_id)}</td>
                     <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>
                       {row.last_modified ? new Date(row.last_modified).toLocaleString() : '—'}

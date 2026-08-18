@@ -15,18 +15,31 @@ import (
 )
 
 type IMSSubscriberListInput struct {
-	Search string `query:"search" doc:"Case-insensitive substring search on MSISDN or IMSI" default:""`
+	Search string `query:"search" doc:"Case-insensitive substring search on MSISDN, IMSI, or the linked HSS subscriber's Alias" default:""`
 	Limit  int    `query:"limit"  doc:"Max rows; 0 = no limit"                              default:"0"  minimum:"0"`
 	Offset int    `query:"offset" doc:"Rows to skip"                                        default:"0"  minimum:"0"`
 }
+
+// IMSSubscriberWithAlias adds the Alias of the linked HSS subscriber (matched
+// by IMSI) to an IMS subscriber row. Alias itself lives on models.Subscriber,
+// not models.IMSSubscriber — there is no guaranteed HSS subscriber for a
+// given IMS subscriber, so this is a best-effort lookup, not a real join key.
+type IMSSubscriberWithAlias struct {
+	models.IMSSubscriber
+	Alias *string `json:"alias,omitempty"`
+}
 type IMSSubscriberListBody struct {
-	Total int64                  `json:"total"`
-	Items []models.IMSSubscriber `json:"items"`
+	Total int64                    `json:"total"`
+	Items []IMSSubscriberWithAlias `json:"items"`
 }
 type IMSSubscriberListOutput struct{ Body IMSSubscriberListBody }
 type IMSSubscriberOutput struct{ Body *models.IMSSubscriber }
-type IMSSubscriberIDInput struct{ ID int `path:"id"` }
-type IMSSubscriberIMSIInput struct{ IMSI string `path:"imsi"` }
+type IMSSubscriberIDInput struct {
+	ID int `path:"id"`
+}
+type IMSSubscriberIMSIInput struct {
+	IMSI string `path:"imsi"`
+}
 type IMSSubscriberCreateInput struct{ Body *models.IMSSubscriber }
 type IMSSubscriberUpdateInput struct {
 	ID   int `path:"id"`
@@ -46,7 +59,11 @@ func (s *Server) listIMSSubscribers(ctx context.Context, input *IMSSubscriberLis
 	q := s.db.WithContext(ctx).Model(&models.IMSSubscriber{})
 	if input.Search != "" {
 		like := "%" + strings.ToLower(input.Search) + "%"
-		q = q.Where("LOWER(msisdn) LIKE ? OR LOWER(imsi) LIKE ?", like, like)
+		q = q.Where(
+			"LOWER(msisdn) LIKE ? OR LOWER(imsi) LIKE ? OR imsi IN (?)",
+			like, like,
+			s.db.WithContext(ctx).Model(&models.Subscriber{}).Select("imsi").Where("imsi IS NOT NULL AND LOWER(alias) LIKE ?", like),
+		)
 	}
 	var total int64
 	if err := q.Count(&total).Error; err != nil {
@@ -62,7 +79,36 @@ func (s *Server) listIMSSubscribers(ctx context.Context, input *IMSSubscriberLis
 	if items == nil {
 		items = []models.IMSSubscriber{}
 	}
-	return &IMSSubscriberListOutput{Body: IMSSubscriberListBody{Total: total, Items: items}}, nil
+
+	// Alias lives on the HSS subscriber row, not IMS subscriber — resolve it
+	// for just the IMSIs on this page rather than joining the main query.
+	imsis := make([]string, 0, len(items))
+	seen := make(map[string]bool, len(items))
+	for _, it := range items {
+		if it.IMSI != nil && *it.IMSI != "" && !seen[*it.IMSI] {
+			seen[*it.IMSI] = true
+			imsis = append(imsis, *it.IMSI)
+		}
+	}
+	aliasByIMSI := map[string]*string{}
+	if len(imsis) > 0 {
+		var subs []models.Subscriber
+		if err := s.db.WithContext(ctx).Select("imsi", "alias").Where("imsi IN ?", imsis).Find(&subs).Error; err != nil {
+			return nil, huma.Error500InternalServerError("db error", err)
+		}
+		for _, sub := range subs {
+			aliasByIMSI[sub.IMSI] = sub.Alias
+		}
+	}
+
+	out := make([]IMSSubscriberWithAlias, len(items))
+	for i, it := range items {
+		out[i] = IMSSubscriberWithAlias{IMSSubscriber: it}
+		if it.IMSI != nil {
+			out[i].Alias = aliasByIMSI[*it.IMSI]
+		}
+	}
+	return &IMSSubscriberListOutput{Body: IMSSubscriberListBody{Total: total, Items: out}}, nil
 }
 
 func (s *Server) createIMSSubscriber(ctx context.Context, input *IMSSubscriberCreateInput) (*IMSSubscriberOutput, error) {

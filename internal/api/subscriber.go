@@ -18,7 +18,7 @@ import (
 )
 
 type SubscriberListInput struct {
-	Search string `query:"search" doc:"Case-insensitive substring search on IMSI or MSISDN" default:""`
+	Search string `query:"search" doc:"Case-insensitive substring search on IMSI, MSISDN, or Alias" default:""`
 	Limit  int    `query:"limit"  doc:"Max rows; 0 = no limit"                              default:"0"  minimum:"0"`
 	Offset int    `query:"offset" doc:"Rows to skip"                                        default:"0"  minimum:"0"`
 }
@@ -53,7 +53,7 @@ func (s *Server) listSubscribers(ctx context.Context, input *SubscriberListInput
 	q := s.db.WithContext(ctx).Model(&models.Subscriber{})
 	if input.Search != "" {
 		like := "%" + strings.ToLower(input.Search) + "%"
-		q = q.Where("LOWER(imsi) LIKE ? OR LOWER(msisdn) LIKE ?", like, like)
+		q = q.Where("LOWER(imsi) LIKE ? OR LOWER(msisdn) LIKE ? OR LOWER(alias) LIKE ?", like, like, like)
 	}
 	var total int64
 	if err := q.Count(&total).Error; err != nil {
