@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import { Check, ChevronsUpDown } from 'lucide-react'
 
 /**
@@ -19,14 +20,18 @@ export default function SearchableSelect({
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [highlight, setHighlight] = useState(0)
+  const [menuRect, setMenuRect] = useState(null)
   const wrapRef = useRef(null)
+  const menuRef = useRef(null)
   const inputRef = useRef(null)
 
   const selected = options.find(o => String(o.value) === String(value)) || null
 
   useEffect(() => {
     function onDocMouseDown(e) {
-      if (wrapRef.current && !wrapRef.current.contains(e.target)) {
+      const insideWrap = wrapRef.current && wrapRef.current.contains(e.target)
+      const insideMenu = menuRef.current && menuRef.current.contains(e.target)
+      if (!insideWrap && !insideMenu) {
         setOpen(false)
         setQuery('')
       }
@@ -34,6 +39,25 @@ export default function SearchableSelect({
     document.addEventListener('mousedown', onDocMouseDown)
     return () => document.removeEventListener('mousedown', onDocMouseDown)
   }, [])
+
+  // The menu is portaled to <body> and fixed-positioned off the trigger's
+  // rect — rendering it in-flow inside a scrollable modal body would grow
+  // that ancestor's scrollHeight and produce a second, nested scrollbar.
+  useEffect(() => {
+    if (!open) return
+    function updateRect() {
+      if (!wrapRef.current) return
+      const r = wrapRef.current.getBoundingClientRect()
+      setMenuRect({ top: r.bottom + 4, left: r.left, width: r.width })
+    }
+    updateRect()
+    window.addEventListener('scroll', updateRect, true)
+    window.addEventListener('resize', updateRect)
+    return () => {
+      window.removeEventListener('scroll', updateRect, true)
+      window.removeEventListener('resize', updateRect)
+    }
+  }, [open])
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -104,8 +128,12 @@ export default function SearchableSelect({
         onKeyDown={handleKeyDown}
       />
       <ChevronsUpDown size={13} className="searchable-select-caret" />
-      {open && !disabled && (
-        <div className="searchable-select-menu">
+      {open && !disabled && menuRect && createPortal(
+        <div
+          ref={menuRef}
+          className="searchable-select-menu"
+          style={{ top: menuRect.top, left: menuRect.left, width: menuRect.width }}
+        >
           {filtered.length === 0 && (
             <div className="searchable-select-empty">No matches</div>
           )}
@@ -120,7 +148,8 @@ export default function SearchableSelect({
               {String(opt.value) === String(value) && <Check size={13} />}
             </div>
           ))}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   )

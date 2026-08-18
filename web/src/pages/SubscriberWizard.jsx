@@ -60,7 +60,7 @@ export default function SubscriberWizard({ onClose }) {
   const [apnPickerValue, setApnPickerValue] = useState('')
 
   // ── Step 3: IMS Subscriber ───────────────────────────────────────────────────
-  const [ims, setIMS] = useState({ msisdn_list: '', ifc_profile_id: '' })
+  const [ims, setIMS] = useState({ ifc_profile_id: '' })
 
   function setA(k, v) { setAUC(p => ({ ...p, [k]: v })) }
   function setS(k, v) { setSub(p => ({ ...p, [k]: v })) }
@@ -73,13 +73,9 @@ export default function SubscriberWizard({ onClose }) {
   }
   function removeApn(id) { setSelectedApnIds(p => p.filter(x => x !== id)) }
 
-  // Propagate subscriber MSISDN → IMS step: mirror into msisdn_list if not already set
+  // Propagate subscriber MSISDN → IMS step
   useEffect(() => {
-    if (sub.msisdn) setIMS(p => ({
-      ...p,
-      msisdn: sub.msisdn,
-      msisdn_list: p.msisdn_list || sub.msisdn,
-    }))
+    if (sub.msisdn) setIMS(p => ({ ...p, msisdn: sub.msisdn }))
   }, [sub.msisdn])
 
   function handleOverlayClick(e) {
@@ -141,7 +137,6 @@ export default function SubscriberWizard({ onClose }) {
         const imsPayload = {
           msisdn: sub.msisdn,
           imsi: auc.imsi,
-          ...(ims.msisdn_list && { msisdn_list: ims.msisdn_list }),
           ...(ims.ifc_profile_id !== '' && { ifc_profile_id: parseInt(ims.ifc_profile_id, 10) }),
         }
         await createIMSSubscriber(imsPayload)
@@ -370,10 +365,6 @@ export default function SubscriberWizard({ onClose }) {
               <div style={{ padding: '6px 10px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-sm)', marginBottom: 12, fontSize: '0.82rem', display: 'flex', gap: 24 }}>
                 <span>IMSI: <span className="mono" style={{ fontWeight: 600 }}>{auc.imsi}</span></span>
                 <span>MSISDN: <span className="mono" style={{ fontWeight: 600 }}>{sub.msisdn || '—'}</span></span>
-              </div>
-              <div className="form-group">
-                <label className="form-label">Additional MSISDNs (MSISDN List, comma-separated)</label>
-                <input className="input mono" value={ims.msisdn_list} onChange={e => setI('msisdn_list', e.target.value)} placeholder="441234567890,441234567891" />
               </div>
               <div className="form-group">
                 <label className="form-label">IFC Profile</label>

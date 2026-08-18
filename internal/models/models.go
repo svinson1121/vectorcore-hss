@@ -310,7 +310,6 @@ func (ServingAPN) TableName() string { return "serving_apn" }
 type IMSSubscriber struct {
 	IMSSubscriberID    int        `gorm:"column:ims_subscriber_id;primaryKey;autoIncrement" json:"ims_subscriber_id,omitempty"`
 	MSISDN             string     `gorm:"column:msisdn;size:18;uniqueIndex"                  json:"msisdn"`
-	MSISDNList         *string    `gorm:"column:msisdn_list;size:1200"                       json:"msisdn_list,omitempty"`
 	IMSI               *string    `gorm:"column:imsi;size:18"                                json:"imsi,omitempty"`
 	IFCProfileID       *int       `gorm:"column:ifc_profile_id"                              json:"ifc_profile_id,omitempty"`
 	PCSCF              *string    `gorm:"column:pcscf;size:512"                              json:"pcscf,omitempty"`

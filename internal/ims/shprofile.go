@@ -69,36 +69,14 @@ func BuildShUserData(sub *models.IMSSubscriber, ifc *models.IFCProfile, mcc, mnc
 	domain := imsDomain(mcc, mnc)
 	privateIdentity := fmt.Sprintf("%s@%s", imsi, domain)
 
-	// Build the list of public identities: TEL URI + SIP URI for primary MSISDN,
-	// plus any additional MSISDNs from MSISDNList.
-	type pubID struct{ tel, sip string }
-	pubIDs := []pubID{{
-		tel: fmt.Sprintf("tel:%s", sub.MSISDN),
-		sip: fmt.Sprintf("sip:%s@%s", sub.MSISDN, domain),
-	}}
-	if sub.MSISDNList != nil && *sub.MSISDNList != "" {
-		for _, extra := range strings.Split(*sub.MSISDNList, ",") {
-			extra = strings.TrimSpace(extra)
-			if extra != "" && extra != sub.MSISDN {
-				pubIDs = append(pubIDs, pubID{
-					tel: fmt.Sprintf("tel:%s", extra),
-					sip: fmt.Sprintf("sip:%s@%s", extra, domain),
-				})
-			}
-		}
-	}
+	// Public identities for the subscriber's MSISDN: TEL URI + SIP URI.
+	tel := fmt.Sprintf("tel:%s", sub.MSISDN)
+	sip := fmt.Sprintf("sip:%s@%s", sub.MSISDN, domain)
 
-	// PublicIdentifiers block: one IMSPublicIdentity per URI.
-	var pubIDElems strings.Builder
-	for _, p := range pubIDs {
-		fmt.Fprintf(&pubIDElems, "    <IMSPublicIdentity>%s</IMSPublicIdentity>\n", escapeXML(p.tel))
-		fmt.Fprintf(&pubIDElems, "    <IMSPublicIdentity>%s</IMSPublicIdentity>\n", escapeXML(p.sip))
-	}
+	pubIDElems := fmt.Sprintf("    <IMSPublicIdentity>%s</IMSPublicIdentity>\n    <IMSPublicIdentity>%s</IMSPublicIdentity>\n",
+		escapeXML(tel), escapeXML(sip))
 
-	// ServiceProfile PublicIdentity blocks: one per URI.
-	var pubIDBlocks strings.Builder
-	for _, p := range pubIDs {
-		fmt.Fprintf(&pubIDBlocks, `      <PublicIdentity>
+	pubIDBlocks := fmt.Sprintf(`      <PublicIdentity>
         <BarringIndication>0</BarringIndication>
         <Identity>%s</Identity>
       </PublicIdentity>
@@ -106,8 +84,7 @@ func BuildShUserData(sub *models.IMSSubscriber, ifc *models.IFCProfile, mcc, mnc
         <BarringIndication>0</BarringIndication>
         <Identity>%s</Identity>
       </PublicIdentity>
-`, escapeXML(p.tel), escapeXML(p.sip))
-	}
+`, escapeXML(tel), escapeXML(sip))
 
 	ifcContent := ""
 	if ifc != nil {
@@ -139,12 +116,12 @@ func BuildShUserData(sub *models.IMSSubscriber, ifc *models.IFCProfile, mcc, mnc
     </ServiceProfile>
   </ShIMSData>
 </Sh-Data>`,
-		pubIDElems.String(),
+		pubIDElems,
 		escapeXML(sub.MSISDN),
 		userState,
 		escapeXML(privateIdentity),
 		escapeXML(scscfName),
-		pubIDBlocks.String(),
+		pubIDBlocks,
 		ifcContent,
 	)
 }

@@ -707,7 +707,7 @@ func (s *Store) UpsertIMSSubscriber(ctx context.Context, rec *models.IMSSubscrib
 	return s.db.WithContext(ctx).
 		Clauses(clause.OnConflict{
 			Columns:   []clause.Column{{Name: "msisdn"}},
-			DoUpdates: clause.AssignmentColumns([]string{"msisdn_list", "imsi", "ifc_profile_id", "xcap_profile", "sh_profile", "sh_template_path", "last_modified"}),
+			DoUpdates: clause.AssignmentColumns([]string{"imsi", "ifc_profile_id", "xcap_profile", "sh_profile", "sh_template_path", "last_modified"}),
 		}).
 		Create(rec).Error
 }

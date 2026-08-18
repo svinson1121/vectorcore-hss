@@ -47,12 +47,10 @@ function IMSModal({ row, onClose, onSaved, subscriberList, ifcProfiles }) {
   const [form, setForm, dirty] = useDirtyState(isEdit ? {
     imsi: row.imsi || '',
     msisdn: row.msisdn || '',
-    msisdn_list: row.msisdn_list || '',
     ifc_profile_id: row.ifc_profile_id != null ? String(row.ifc_profile_id) : '',
   } : {
     imsi: '',
     msisdn: '',
-    msisdn_list: '',
     ifc_profile_id: '',
   })
   const [saving, setSaving] = useState(false)
@@ -89,11 +87,7 @@ function IMSModal({ row, onClose, onSaved, subscriberList, ifcProfiles }) {
     if (imsi) {
       const sub = subscriberList.find(s => s.imsi === imsi)
       if (sub && sub.msisdn) {
-        setForm(prev => ({
-          ...prev,
-          msisdn: sub.msisdn,
-          msisdn_list: prev.msisdn_list || sub.msisdn,
-        }))
+        set('msisdn', sub.msisdn)
       }
     }
   }
@@ -117,7 +111,6 @@ function IMSModal({ row, onClose, onSaved, subscriberList, ifcProfiles }) {
       const payload = {
         msisdn: form.msisdn,
         imsi: form.imsi,
-        ...(form.msisdn_list && { msisdn_list: form.msisdn_list }),
         ...(form.ifc_profile_id !== '' && { ifc_profile_id: parseInt(form.ifc_profile_id, 10) }),
       }
       if (isEdit) {
@@ -165,15 +158,6 @@ function IMSModal({ row, onClose, onSaved, subscriberList, ifcProfiles }) {
                 placeholder="441234567890"
               />
             </div>
-          </div>
-          <div className="form-group">
-            <label className="form-label">MSISDN List (comma-separated additional MSISDNs)</label>
-            <input
-              className="input mono"
-              value={form.msisdn_list}
-              onChange={e => set('msisdn_list', e.target.value)}
-              placeholder="441234567890,441234567891"
-            />
           </div>
           <div className="form-group">
             <label className="form-label">IFC Profile <span style={{ color: 'var(--danger)' }}>*</span></label>
